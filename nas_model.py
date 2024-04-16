@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '416_nasmodel_testi_3'
+study_name = '416_nasmodel_oikeindata_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
