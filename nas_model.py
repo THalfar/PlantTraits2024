@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '416_nasmodel_3'
+study_name = '416_nasmodel_testi_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -221,7 +221,7 @@ def objective(trial):
 
 
     log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'log15': 15, 'sqrt': 'sqrt', 'cbrt': 'cbrt'}
-    log_transforms = {'X4_mean': 'log2', 'X11_mean': 'log15', 'X18_mean': 'none', 'X50_mean': 'none', 'X26_mean': 'sqrt', 'X3112_mean': 'log15'}
+    log_transforms = {'X4_mean': 2, 'X11_mean': 15, 'X18_mean': None, 'X50_mean': None, 'X26_mean': 'sqrt', 'X3112_mean': 15}
     
     callbacks = [
                  ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
