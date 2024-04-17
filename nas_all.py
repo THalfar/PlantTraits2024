@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '416_oikealladatalla_std_minmax_power_3'
+study_name = '417_nas_stdminmax_all_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -54,12 +54,10 @@ with open(f'{scaler_tabufeatures_name}', 'wb') as f:
 
 X_train_tab = train_df[FEATURE_COLS].values
 X_train_feat = np.stack(train_df['features'].values)
-# y_train = train_df[mean_columns].values
 y_train = train_df[mean_columns]
 
 X_valid_tab = valid_df[FEATURE_COLS].values 
 X_valid_feat = np.stack(valid_df['features'].values)
-# y_valid = valid_df[mean_columns].values
 y_valid = valid_df[mean_columns]
 
 import numpy as np
@@ -84,6 +82,7 @@ gpus = tf.config.experimental.list_physical_devices('GPU')
 if gpus:
     try:
         for gpu in gpus:
+            print(f'Setting memory growth for {gpu}')
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
         print(e)
@@ -125,7 +124,7 @@ def r2_score_tf(y_true, y_pred):
         ss_res = tf.reduce_sum(tf.square(y_true - y_pred), axis=0)
         ss_tot = tf.reduce_sum(tf.square(y_true - tf.reduce_mean(y_true, axis=0)), axis=0)
         r2 = 1 - ss_res/(ss_tot + tf.keras.backend.epsilon())
-        r2 = tf.where(tf.math.is_nan(r2), tf.zeros_like(r2), r2)  # Korvaa NaN-arvot nollilla
+        r2 = tf.where(tf.math.is_nan(r2), tf.zeros_like(r2), r2) 
         return tf.reduce_mean(tf.maximum(r2, 0.0))
     except Exception as e:
         # print(f'Error in r2_score_tf: {e}')
@@ -137,28 +136,61 @@ def create_model(trial):
     image_features_input = Input(shape=(X_train_feat.shape[1],), name='image_features_input')
     tabular_data_input = Input(shape=(X_train_tab.shape[1],), name='tabular_data_input')
 
-    num_img_units = 1477
-    img_dense = Dense(num_img_units, activation='elu', kernel_initializer = 'glorot_uniform')(image_features_input)
-    img_dense = layers.BatchNormalization()(img_dense)
-    img_dense = Dropout(0.7)(img_dense)
-    
-    tab_dense = Dense(402, activation='selu', kernel_initializer = 'random_normal')(tabular_data_input)
-    tab_dense = Dropout(0.6)(tab_dense)
+    img_num_layers = trial.suggest_int('Imgage layers', 1, 3)
+    max_img_units = 2000
+    img_dense = image_features_input
+
+    image_init = trial.suggest_categorical(f'Img_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+    activation_img = trial.suggest_categorical(f'Act_img', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu'])
+    drop_img = trial.suggest_float(f'Drop_img', 0.0, 0.9, step=0.1)
+    batch_norm_img = trial.suggest_categorical(f'Img_BatchN', choices = ['On', 'Off'])
+    for i in range(img_num_layers):
+
+        num_img_units = trial.suggest_int(f'Num_img_{i}', 128, max_img_units, log = True)
+        img_dense = Dense(num_img_units, activation=activation_img, kernel_initializer = image_init)(img_dense)
+        if batch_norm_img == 'On':
+            img_dense = layers.BatchNormalization()(img_dense)
+        img_dense = Dropout(drop_img)(img_dense)
+        max_img_units = min(max_img_units, num_img_units)
+
+
+    tab_num_layers = trial.suggest_int('Tabular layers', 1, 3)
+    max_tab_units = 1000
+    tab_dense = tabular_data_input
+    tab_init = trial.suggest_categorical(f'Tab_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+    activation_tab = trial.suggest_categorical(f'Act_tab', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu'])
+    drop_tab = trial.suggest_float(f'Drop_tab', 0.0, 0.9, step = 0.1)
+    batch_norm_tab = trial.suggest_categorical(f'Tab_BatchN', choices = ['On', 'Off'])
+    for i in range(tab_num_layers):
+
+        num_tab_units = trial.suggest_int(f'Num_tab_{i}', 64, max_tab_units, log = True)
+        tab_dense = Dense(num_tab_units, activation=activation_tab, kernel_initializer = tab_init)(tab_dense)
+        if batch_norm_tab == 'On':
+            tab_dense = layers.BatchNormalization()(tab_dense)
+        tab_dense = Dropout(drop_tab)(tab_dense)
+
+        max_tab_units = min(max_tab_units, num_tab_units)
+
 
     concatenated = Concatenate()([img_dense, tab_dense])
-    
-    
-    concatenated = Dense(910, activation='swish', kernel_initializer = 'he_uniform')(concatenated)
-    concatenated = layers.BatchNormalization()(concatenated)
-    concatenated = Dropout(0.3)(concatenated)
+    com_num_layers = trial.suggest_int('Concat layers', 1, 3)
+    max_com_units = 3000
+    con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
+    activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu'])
+    drop_common = trial.suggest_float(f'Drop_con', 0.0, 0.9, step = 0.1)
+    batch_norm_common = trial.suggest_categorical(f'Com_BatchN', ['On', 'Off'])
+    for i in range(com_num_layers):
 
-    concatenated = Dense(793, activation='swish', kernel_initializer = 'he_uniform')(concatenated)
-    concatenated = layers.BatchNormalization()(concatenated)
-    concatenated = Dropout(0.3)(concatenated)
+        num_common_units = trial.suggest_int(f'Num_con_{i}', 128, max_com_units, log = True)
+        concatenated = Dense(num_common_units, activation=activation_common, kernel_initializer = con_init)(concatenated)
+        if batch_norm_common == 'On':
+            concatenated = layers.BatchNormalization()(concatenated)
+        concatenated = Dropout(drop_common)(concatenated)
+
+        max_com_units = min(max_com_units, num_common_units)
 
     output = Dense(6, activation='linear')(concatenated)
     model = Model(inputs=[image_features_input, tabular_data_input], outputs=output)
-
 
     optimizer_options = ['adam', 'rmsprop', 'Nadam', 'adamax']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
@@ -172,12 +204,7 @@ def create_model(trial):
     else:
         optimizer = optimizers.Adamax()
 
-    # delta = trial.suggest_float('delta', 0.0, 2.5)
-    # global current_delta
-    # current_delta = delta
-
     model.compile(optimizer=optimizer, loss='mse', metrics=['mse','mae', r2_score_tf])
-    # model.compile(optimizer=optimizers.Nadam(), loss='mse', metrics=['mse','mae', r2_score])
     
     
     return model
@@ -192,12 +219,12 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'log15': 15, 'sqrt': 'sqrt', 'cbrt': 'cbrt'}
+    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'log15': 15, 'sqrt': 'sqrt', 'cbrt': 'cbrt', 'log20': 20, 'log30' : 30}
     log_transforms = {}
     for target in mean_columns:
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
         log_transforms[target] = log_base_options[log_base]
-
+    
     callbacks = [
                  ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
 
@@ -218,13 +245,13 @@ def objective(trial):
             y_train_transformed[target] = y_train[target]
             y_valid_transformed[target] = y_valid[target]
     
-    # scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler(), 'Robust': RobustScaler(), 'Power': PowerTransformer(), 'Quantile': QuantileTransformer()}
-    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler(), 'power' : PowerTransformer()}
+    
+    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler()}
     scaler_transforms = {}
     for target in mean_columns:
         scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
         scaler_transforms[target] = scaler_base_options[scaler_base]
-
+    
     for target, scaler in scaler_transforms.items():
         if scaler is not None:
             y_train_transformed[target] = scaler.fit_transform(y_train_transformed[target].values.reshape(-1, 1)).flatten()
@@ -273,7 +300,9 @@ def objective(trial):
         trial.report(r2_score_inv, epoch)
 
         if r2_score_inv == float('-inf'):
+            print('---')
             print(f'Trial {trial.number} failed at epoch {epoch} value : {r2_score_inv}')
+            print('---')
             tf.keras.backend.clear_session()
             gc.collect()
             return r2_score_inv
@@ -285,7 +314,9 @@ def objective(trial):
         
         if trial.should_prune():
 
+            print('---')
             print(f'Trial {trial.number} pruned at epoch {epoch} with R2 {r2_score_inv:.5f}')
+            print('---')
 
             if trial.number > 0:
                 if r2_score_inv > study.best_value:
@@ -331,7 +362,7 @@ def objective(trial):
                 new_best_found = True
             
                 print("#" * 50)                
-                print("*" * 50)                
+                       
                 print(f'Old best R2 : {study.best_value:.5f}')
                 print(f'New best R2 : {r2_score_inv:.5f}')
 
@@ -359,7 +390,7 @@ def objective(trial):
                 with open(scaler_transforms_name, 'wb') as f:
                     pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-                print("*" * 50)
+                print("#" * 50)                
 
     
                 
@@ -406,26 +437,33 @@ def objective(trial):
 
 
 num_random_trials = 1
-num_gene = 20
+num_gene = 50
 num_tpe_trial = 5
 
 
 search_time_max = 3600 * 18
 
+if os.path.exist(f'./NN_search/{study_name}_pruner.pickle'):
+    with open(f'./NN_search/{study_name}_pruner.pickle', 'rb') as f:
+        pruner = pickle.load(f)
+else:
+    pruner = optuna.pruners.MedianPruner(n_startup_trials=1, n_warmup_steps=1, interval_steps=3)
+
+
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
                             storage=f'sqlite:///413_prunerilla.db',
                             load_if_exists=True,
-                            pruner=optuna.pruners.MedianPruner(n_startup_trials=1, n_warmup_steps=1, interval_steps=3)
+                            pruner=pruner
                             )
 
 search_time_taken = 0
 search_start = time.time()
 round = 0
 trials_done = 0
-genemachine = optuna.samplers.NSGAIIISampler(mutation_prob=0.05)
-qmcampler = optuna.samplers.QMCSampler(warn_independent_sampling = False)
-tpe_sampler = optuna.samplers.TPESampler(n_startup_trials=0, multivariate=True, warn_independent_sampling = False, n_ei_candidates=42)
+# genemachine = optuna.samplers.NSGAIISampler(mutation_prob= 0.03,  crossover = optuna.samplers.nsgaii.VSBXCrossover())
+# qmcampler = optuna.samplers.QMCSampler(warn_independent_sampling = False)
+# tpe_sampler = optuna.samplers.TPESampler(n_startup_trials=0, multivariate=True, warn_independent_sampling = False)
 
 
 
@@ -440,22 +478,44 @@ logging.basicConfig(level=logging.INFO)
 
 while search_time_taken < search_time_max:
 
+    if os.path.exist(f'./NN_search/{study_name}_genesampler.pickle'):
+        with open(f'./NN_search/{study_name}_genesampler.pickle', 'rb') as f:
+            genemachine = pickle.load(f)
+    else:
+        genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover())
+    
+    if os.path.exist(f'./NN_search/{study_name}_qmc_sampler.pickle'):
+        with open(f'./NN_search/{study_name}_qmc_sampler.pickle', 'rb') as f:
+            qmcampler = pickle.load(f)
+    else:
+        qmcampler = optuna.samplers.QMCSampler(warn_independent_sampling = False)
+    
+    if os.path.exist(f'./NN_search/{study_name}_tpe_sampler.pickle'):
+        with open(f'./NN_search/{study_name}_tpe_sampler.pickle', 'rb') as f:
+            tpe_sampler = pickle.load(f)
+    else:
+        tpe_sampler = optuna.samplers.TPESampler(n_startup_trials=0, multivariate=True, warn_independent_sampling = False)
+
+
     round_start = time.time()
 
-    print('-' * 50)
+    print('=' * 50)
     print(f'Starting study with {num_random_trials} random trials, round {round}')
     print(f'Search time so far taken : {timedelta(seconds=search_time_taken)}')
-    print('-' * 50)
+    print('=' * 50)
     study.sampler = qmcampler
     study.optimize(objective, n_trials=num_random_trials)
+    print('-' * 50)
     print(f'Time taken for random trials: {timedelta(seconds= (time.time() - round_start))}')
     print(f'Time for one random trial: {timedelta(seconds= (time.time() - round_start) / num_random_trials)}')
+    print('-' * 50)
     
     genetime = time.time()
-    print('-' * 50)
-    print(f'Starting gene {num_gene} trials...')
+
+    print(f'\nStarting gene {num_gene} trials...\n')
     study.sampler = genemachine
     study.optimize(objective, n_trials=num_gene)
+    print('-' * 50)
     print(f'Time taken for gene trials: {timedelta(seconds= time.time() - genetime)}')
     print(f'Time for one gene trial: {timedelta(seconds= (time.time() - genetime) / num_gene)}')    
     print('-' * 50)
@@ -463,6 +523,7 @@ while search_time_taken < search_time_max:
     print(f'Starting TPE {num_tpe_trial} trials...')
     study.sampler = tpe_sampler
     study.optimize(objective, n_trials=num_tpe_trial)
+    print('-' * 50)
     print(f'Time taken for TPE trials: {timedelta(seconds= time.time() - time_tpe)}')
     print(f'Time for one TPE trial: {timedelta(seconds= (time.time() - time_tpe) / num_tpe_trial)}')
     print('-' * 50)
@@ -476,6 +537,19 @@ while search_time_taken < search_time_max:
     search_time_taken = time.time() - search_start
     print(f'Time taken for one trials all rounds: {timedelta(seconds= search_time_taken / trials_done)}')
     round += 1
+
+    with open(f'./NN_search/{study_name}_pruner.pickle', 'wb') as f:
+        pickle.dump(study.pruner, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    with open(f'./NN_search/{study_name}_genesampler.pickle', 'wb') as f:
+        pickle.dump(genemachine, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    with open(f'./NN_search/{study_name}_qmc_sampler.pickle', 'wb') as f:
+        pickle.dump(qmcampler, f, protocol=pickle.HIGHEST_PROTOCOL)
+    
+    with open(f'./NN_search/{study_name}_tpe_sampler.pickle', 'wb') as f:
+        pickle.dump(tpe_sampler, f, protocol=pickle.HIGHEST_PROTOCOL)
+
 
 print(f'Search time total : {timedelta(seconds=time.time() - search_start)}')
 
