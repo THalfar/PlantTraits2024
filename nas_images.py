@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '418_stdminmax_images_3'
+study_name = '418_stdminmax_mape_images_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -59,7 +59,7 @@ from datetime import timedelta
 import time
 import os
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer, RobustScaler
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 
 import os
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
@@ -359,8 +359,9 @@ def objective(trial):
                     r2 = r2_score_safe(y_valid, preds_transformed)
                     mse  = mean_squared_error(y_valid, preds_transformed)
                     mae = mean_absolute_error(y_valid, preds_transformed)
+                    mape = mean_absolute_percentage_error(y_valid, preds_transformed)
                     
-                    print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}')
+                    print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}, MAPE : {mape:.5f}')
                     print(f'Best epoch : {epoch}')
 
                     best_filename = f'./NN_search/{study_name}_best_val_{r2_score_inv:.5f}_model.h5'
@@ -399,8 +400,9 @@ def objective(trial):
                 r2 = r2_score_safe(y_valid, preds_transformed)
                 mse  = mean_squared_error(y_valid, preds_transformed)
                 mae = mean_absolute_error(y_valid, preds_transformed)
+                mape = mean_absolute_percentage_error(y_valid, preds_transformed)
                 
-                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}')
+                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}, MAPE : {mape:.5f}')
                 print(f'Best epoch : {epoch}')
 
                 best_filename = f'./NN_search/{study_name}_best_val_{r2_score_inv:.5f}_model.h5'
@@ -435,8 +437,9 @@ def objective(trial):
                 r2 = r2_score_safe(y_valid, preds_transformed)
                 mse  = mean_squared_error(y_valid, preds_transformed)
                 mae = mean_absolute_error(y_valid, preds_transformed)
+                mape = mean_absolute_percentage_error(y_valid, preds_transformed)
                 
-                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}')
+                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}, MAPE : {mape:.5f}')
                 print(f'Best epoch : {epoch}')
 
                 best_filename = f'./NN_search/{study_name}_best_val_{r2_score_inv:.5f}_model.h5'
