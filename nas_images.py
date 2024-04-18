@@ -221,21 +221,21 @@ def create_model(trial):
     output = Dense(6, activation='linear')(concatenated)
     model = Model(inputs=[image_avg_input, images_max_input], outputs=output)
 
-    optimizer_options = ['adam', 'rmsprop', 'Nadam', 'adamax']
+    optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
 
     if optimizer_selected == 'adam':
         optimizer = optimizers.Adam()
     elif optimizer_selected == 'rmsprop':
-        optimizer = optimizers.RMSprop()
-    elif optimizer_selected == 'Nadam':
-        optimizer = optimizers.Nadam()
+        optimizer = optimizers.RMSprop()        
+    elif optimizer_selected == 'Ftrl':
+        optimizer = optimizers.Ftrl()
     else:
         optimizer = optimizers.Adamax()
         
-    loss_function = trial.suggest_categorical('loss', ['mse', 'mae'])
+    loss_function = trial.suggest_categorical('loss', ['mse', 'mae', 'mape'])
 
-    model.compile(optimizer=optimizer, loss=loss_function, metrics=['mse','mae', r2_score_tf])
+    model.compile(optimizer=optimizer, loss=loss_function, metrics=['mse','mae', 'mape' , r2_score_tf])
     
     
     return model
