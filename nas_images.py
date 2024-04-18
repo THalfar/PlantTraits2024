@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '418_stdminmax_mape_images_3'
+study_name = '419_stdminmax_lrreduce_images_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -255,9 +255,20 @@ def objective(trial):
     for target in mean_columns:
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
         log_transforms[target] = log_base_options[log_base]
+
+    if trial['loss'] == 'mape':
+        callbacks = [
+                 ReduceLROnPlateau('val_mape', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+    elif trial['loss'] == 'mse':
+        callbacks = [
+                 ReduceLROnPlateau('val_mse', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+    else:
+        callbacks = [
+                 ReduceLROnPlateau('val_mae', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+        
     
-    callbacks = [
-                 ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
+    # callbacks = [
+    #              ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
 
     for target, log_base in log_transforms.items():
         if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
@@ -505,37 +516,38 @@ logging.basicConfig(level=logging.INFO,
 optuna.logging.get_logger("optuna").setLevel(logging.INFO)
 logging.basicConfig(level=logging.INFO)
 
+if os.path.exists(f'./NN_search/{study_name}_genesampler.pickle'):
+    with open(f'./NN_search/{study_name}_genesampler.pickle', 'rb') as f:
+        print(f'Loading gene sampler from file {f}')
+        genemachine = pickle.load(f)
+else:
+    print('Creating new gene sampler')
+    genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover())
+
+if os.path.exists(f'./NN_search/{study_name}_qmc_sampler.pickle'):
+    with open(f'./NN_search/{study_name}_qmc_sampler.pickle', 'rb') as f:
+        print(f'Loading QMC sampler from file {f}')
+        qmcampler = pickle.load(f)
+else:
+    print(f'Creating new QMC sampler')
+    qmcampler = optuna.samplers.QMCSampler(warn_independent_sampling = False)
+
+if os.path.exists(f'./NN_search/{study_name}_tpe_sampler.pickle'):
+    with open(f'./NN_search/{study_name}_tpe_sampler.pickle', 'rb') as f:
+        print(f'Loading TPE sampler from file {f}')
+        tpe_sampler = pickle.load(f)
+else:
+    print(f'Creating new TPE sampler')
+    tpe_sampler = optuna.samplers.TPESampler(n_startup_trials=0, multivariate=True, warn_independent_sampling = False)
+
+if os.path.exists(f'./NN_search/{study_name}_pruner.pickle'):
+    with open(f'./NN_search/{study_name}_pruner.pickle', 'rb') as f:
+        print(f'Loading pruner from file {f}')
+        study.pruner = pickle.load(f)
+
 
 while search_time_taken < search_time_max:
 
-    if os.path.exists(f'./NN_search/{study_name}_genesampler.pickle'):
-        with open(f'./NN_search/{study_name}_genesampler.pickle', 'rb') as f:
-            print(f'Loading gene sampler from file {f}')
-            genemachine = pickle.load(f)
-    else:
-        print('Creating new gene sampler')
-        genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover())
-    
-    if os.path.exists(f'./NN_search/{study_name}_qmc_sampler.pickle'):
-        with open(f'./NN_search/{study_name}_qmc_sampler.pickle', 'rb') as f:
-            print(f'Loading QMC sampler from file {f}')
-            qmcampler = pickle.load(f)
-    else:
-        print(f'Creating new QMC sampler')
-        qmcampler = optuna.samplers.QMCSampler(warn_independent_sampling = False)
-    
-    if os.path.exists(f'./NN_search/{study_name}_tpe_sampler.pickle'):
-        with open(f'./NN_search/{study_name}_tpe_sampler.pickle', 'rb') as f:
-            print(f'Loading TPE sampler from file {f}')
-            tpe_sampler = pickle.load(f)
-    else:
-        print(f'Creating new TPE sampler')
-        tpe_sampler = optuna.samplers.TPESampler(n_startup_trials=0, multivariate=True, warn_independent_sampling = False)
-    
-    if os.path.exists(f'./NN_search/{study_name}_pruner.pickle'):
-        with open(f'./NN_search/{study_name}_pruner.pickle', 'rb') as f:
-            print(f'Loading pruner from file {f}')
-            study.pruner = pickle.load(f)
 
 
     round_start = time.time()
