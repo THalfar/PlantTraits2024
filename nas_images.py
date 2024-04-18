@@ -19,17 +19,11 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '417_nas_stdminmax_all_3'
+study_name = '418_stdminmax_images_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
 
-selected_features_pickle_path = './data/selected_features_list.pickle'
-with open(selected_features_pickle_path, 'rb') as f:
-    FEATURE_COLS = pickle.load(f)
-
-
-train_df_original = train_df.copy()
 
 from sklearn.preprocessing import StandardScaler, RobustScaler
 
@@ -44,20 +38,13 @@ valid_df = sample_df[sample_df.fold == 3]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
-train_df[FEATURE_COLS] = scaler.fit_transform(train_df[FEATURE_COLS].values)
-valid_df[FEATURE_COLS] = scaler.transform(valid_df[FEATURE_COLS].values)
 
-scaler_tabufeatures_name = f'./NN_search/scaler_tabufeatures_{study_name}_train.pickle'
-print(f"Saving scaler to {scaler_tabufeatures_name}")
-with open(f'{scaler_tabufeatures_name}', 'wb') as f:
-    pickle.dump(scaler, f)
-
-X_train_tab = train_df[FEATURE_COLS].values
-X_train_feat = np.stack(train_df['features'].values)
+X_train_avg = np.stack(train_df['features_avg'].values)
+X_train_max = np.stack(train_df['features_max'].values)
 y_train = train_df[mean_columns]
 
-X_valid_tab = valid_df[FEATURE_COLS].values 
-X_valid_feat = np.stack(valid_df['features'].values)
+X_valid_avg = np.stack(valid_df['features_avg'].values)
+X_valid_max = np.stack(valid_df['features_max'].values)
 y_valid = valid_df[mean_columns]
 
 import numpy as np
@@ -86,10 +73,6 @@ if gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
         print(e)
-
-
-
-
 
 
 np.seterr(over='ignore')
@@ -133,70 +116,110 @@ def r2_score_tf(y_true, y_pred):
 
 def create_model(trial):
 
-    image_features_input = Input(shape=(X_train_feat.shape[1],), name='image_features_input')
-    tabular_data_input = Input(shape=(X_train_tab.shape[1],), name='tabular_data_input')
+    image_avg_input = Input(shape=(X_train_avg.shape[1],), name='image_avg')
+    images_max_input = Input(shape=(X_train_max.shape[1],), name='image_max')
 
-    img_num_layers = trial.suggest_int('Imgage layers', 1, 3)
-    max_img_units = 2000
-    img_dense = image_features_input
+    img_dense_avg = image_avg_input
 
-    image_init = trial.suggest_categorical(f'Img_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_img = trial.suggest_categorical(f'Act_img', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_img = trial.suggest_float(f'Drop_img', 0.0, 0.9)
-    batch_norm_img = trial.suggest_categorical(f'Img_BatchN', choices = ['On', 'Off'])
+    max_img_avg_units = 3000
+    num_img_avg = trial.suggest_int('ImAvg_layers', 1, 2)
+    Imavg_init = trial.suggest_categorical(f'ImAvg_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+    activation_imavg = trial.suggest_categorical(f'ImAvg_act', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
+    drop_img_avg = trial.suggest_float(f'ImAvg_D', 0.0, 0.9)
+    norm_img_avg = trial.suggest_categorical(f'ImAvg_N', choices = ['On', 'Off'])
+    drop_all_imgavg = trial.suggest_categorical(f'ImAvg_DALL', choices = ['On', 'Off'])
+    norm_img_avg_all = trial.suggest_categorical(f'ImAvg_NALL', choices = ['On', 'Off'])
 
-    for i in range(img_num_layers):
+    for i in range(num_img_avg):
 
-        num_img_units = trial.suggest_int(f'Num_img_{i}', 32, max_img_units)
-        img_dense = Dense(num_img_units, activation=activation_img, kernel_initializer = image_init)(img_dense)
-        img_dense = Dropout(drop_img)(img_dense)
+        num_img_avg_units = trial.suggest_int(f'ImAvg_#{i}', 16, max_img_avg_units)
+        img_dense_avg = Dense(num_img_avg_units, activation=activation_imavg, kernel_initializer = Imavg_init)(img_dense_avg)
+          
+        if norm_img_avg == 'On':
+            if norm_img_avg_all == 'On':
+                img_dense_avg = layers.BatchNormalization()(img_dense_avg)
 
-        max_img_units = min(max_img_units, num_img_units)
+        if drop_all_imgavg == 'On':
+            img_dense_avg = Dropout(drop_img_avg)(img_dense_avg)      
 
-    if batch_norm_img == 'On':
-        img_dense = layers.BatchNormalization()(img_dense)
+        max_img_avg_units = min(max_img_avg_units, num_img_avg_units)
+
+    if norm_img_avg == 'On':
+        if norm_img_avg_all == 'Off':
+            img_dense_avg = layers.BatchNormalization()(img_dense_avg)
+    
+    if drop_all_imgavg == 'Off':
+        img_dense_avg = Dropout(drop_img_avg)(img_dense_avg)
 
 
-    tab_num_layers = trial.suggest_int('Tabular layers', 1, 3)
-    max_tab_units = 1000
-    tab_dense = tabular_data_input
-    tab_init = trial.suggest_categorical(f'Tab_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_tab = trial.suggest_categorical(f'Act_tab', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_tab = trial.suggest_float(f'Drop_tab', 0.0, 0.9)
-    batch_norm_tab = trial.suggest_categorical(f'Tab_BatchN', choices = ['On', 'Off'])
+    img_dense_max = images_max_input
 
-    for i in range(tab_num_layers):
+    max_immax_units = 3000
+    num_img_max_layers = trial.suggest_int('ImMax_layers', 1, 2)
+    Immax_init = trial.suggest_categorical(f'ImMax_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+    activation_immax = trial.suggest_categorical(f'ImMax_act', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
+    drop_img_max = trial.suggest_float(f'ImMax_D', 0.0, 0.9)
+    norm_img_max = trial.suggest_categorical(f'ImMax_N', choices = ['On', 'Off'])
+    drop_all_immax = trial.suggest_categorical(f'ImMax_DALL', choices = ['On', 'Off'])
+    norm_immax_all = trial.suggest_categorical(f'ImMax_NALL', choices = ['On', 'Off'])
 
-        num_tab_units = trial.suggest_int(f'Num_tab_{i}', 16, max_tab_units)
-        tab_dense = Dense(num_tab_units, activation=activation_tab, kernel_initializer = tab_init)(tab_dense)
-        tab_dense = Dropout(drop_tab)(tab_dense)
+    for i in range(num_img_max_layers):
 
-        max_tab_units = min(max_tab_units, num_tab_units)
+        num_img_max_units = trial.suggest_int(f'ImMax_#{i}', 16, max_immax_units)
+        img_dense_max = Dense(num_img_max_units, activation=activation_immax, kernel_initializer = Immax_init)(img_dense_max)
+       
+        if norm_img_max == 'On':
+            if norm_immax_all == 'On':
+                img_dense_max = layers.BatchNormalization()(img_dense_max)
 
-    if batch_norm_tab == 'On':
-        tab_dense = layers.BatchNormalization()(tab_dense)
+        if drop_all_immax == 'On':
+            img_dense_max = Dropout(drop_img_max)(img_dense_max)
+    
+        max_immax_units = min(max_immax_units, num_img_max_units)
 
-    concatenated = Concatenate()([img_dense, tab_dense])
-    com_num_layers = trial.suggest_int('Concat layers', 1, 3)
+    if norm_img_max == 'On':
+        if norm_immax_all == 'Off':
+            img_dense_max = layers.BatchNormalization()(img_dense_max)
+    
+    if drop_all_immax == 'Off':
+        img_dense_max = Dropout(drop_img_max)(img_dense_max)
+
+
+
+    concatenated = Concatenate()([img_dense_avg, img_dense_max])
+    
     max_com_units = 3000
+    com_num_layers = trial.suggest_int('Concat layers', 1, 3)
     con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
     activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
     drop_common = trial.suggest_float(f'Drop_con', 0.0, 0.9)
     batch_norm_common = trial.suggest_categorical(f'Com_BatchN', ['On', 'Off'])
+    drop_commo_all = trial.suggest_categorical(f'Drop_con_all', ['On', 'Off'])
+    norm_common_all = trial.suggest_categorical(f'Norm_con_all', ['On', 'Off'])
 
     for i in range(com_num_layers):
 
-        num_common_units = trial.suggest_int(f'Num_con_{i}', 32, max_com_units, log = True)
+        num_common_units = trial.suggest_int(f'Num_con_{i}', 16, max_com_units, log = True)
         concatenated = Dense(num_common_units, activation=activation_common, kernel_initializer = con_init)(concatenated)
-        concatenated = Dropout(drop_common)(concatenated)
+        
+        if batch_norm_common == 'On':
+            if norm_common_all == 'On':
+                concatenated = layers.BatchNormalization()(concatenated)
+
+        if drop_commo_all == 'On':
+            concatenated = Dropout(drop_common)(concatenated)
 
         max_com_units = min(max_com_units, num_common_units)
 
     if batch_norm_common == 'On':
-        concatenated = layers.BatchNormalization()(concatenated)
+        if norm_common_all == 'Off':
+            concatenated = layers.BatchNormalization()(concatenated)
+    
+    if drop_commo_all == 'Off':
+        concatenated = Dropout(drop_common)(concatenated)
 
     output = Dense(6, activation='linear')(concatenated)
-    model = Model(inputs=[image_features_input, tabular_data_input], outputs=output)
+    model = Model(inputs=[image_avg_input, images_max_input], outputs=output)
 
     optimizer_options = ['adam', 'rmsprop', 'Nadam', 'adamax']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
@@ -269,10 +292,9 @@ def objective(trial):
     new_best_found = False
     for epoch in range(17):
 
-        model.fit([X_train_feat, X_train_tab], y_train_transformed, validation_data=([X_valid_feat, X_valid_tab], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
-        preds_transformed = model.predict([X_valid_feat, X_valid_tab], verbose = 0)        
+        model.fit([X_train_avg, X_train_max], y_train_transformed, validation_data=([X_valid_avg, X_valid_max], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
+        preds_transformed = model.predict([X_valid_avg, X_valid_max], verbose = 0)        
 
-    
         try:        
             for i, target in enumerate(mean_columns):
                 scaler = scaler_transforms[target]
@@ -462,7 +484,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///413_prunerilla.db',
+                            storage=f'sqlite:///418_images.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
