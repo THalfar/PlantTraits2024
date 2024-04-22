@@ -34,9 +34,11 @@ with open(pickle_file_path, 'rb') as f:
 
 features = pd.read_csv('./data/test.csv')
 FEATURE_COLS = features.columns[1:].tolist()
+
+print(train_df.columns)
     
 
-study_name = '420_stdminmaxpower_allfeatures_3'
+study_name = '421_effi_testi_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -51,27 +53,16 @@ train_df_original = train_df.copy()
 print(train_df['fold'].value_counts())
 
 
-scaler = RobustScaler()
-
 sample_df = train_df.copy()
 train_df = sample_df[sample_df.fold != 3]
 valid_df = sample_df[sample_df.fold == 3]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
-train_df[FEATURE_COLS] = scaler.fit_transform(train_df[FEATURE_COLS].values)
-valid_df[FEATURE_COLS] = scaler.transform(valid_df[FEATURE_COLS].values)
 
-scaler_tabufeatures_name = f'./NN_search/scaler_tabufeatures_{study_name}_train.pickle'
-print(f"Saving scaler to {scaler_tabufeatures_name}")
-with open(f'{scaler_tabufeatures_name}', 'wb') as f:
-    pickle.dump(scaler, f)
-
-X_train_tab = train_df[FEATURE_COLS].values
-X_train_feat = np.stack(train_df['features'].values)
+X_train_feat = np.stack(train_df['features_avg'].values)
 y_train = train_df[mean_columns]
 
-X_valid_tab = valid_df[FEATURE_COLS].values 
-X_valid_feat = np.stack(valid_df['features'].values)
+X_valid_feat = np.stack(valid_df['features_avg'].values)
 y_valid = valid_df[mean_columns]
 
 
@@ -86,6 +77,12 @@ if gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
         print(e)
+
+
+
+from tensorflow.keras import mixed_precision
+mixed_precision.set_global_policy('mixed_float16')
+    
 
 np.seterr(over='ignore')
 
@@ -129,69 +126,20 @@ def r2_score_tf(y_true, y_pred):
 def create_model(trial):
 
     image_features_input = Input(shape=(X_train_feat.shape[1],), name='image_features_input')
-    tabular_data_input = Input(shape=(X_train_tab.shape[1],), name='tabular_data_input')
 
-    img_num_layers = trial.suggest_int('Imgage layers', 1, 3)
-    max_img_units = 3000
-    img_dense = image_features_input
+    batch_normalisation = trial.suggest_categorical('batch_normalisation', [True, False])
+    if batch_normalisation:
+        image_features_input = tf.keras.layers.BatchNormalization()(image_features_input)
+    
+    drop_on = trial.suggest_categorical('drop_on', [True, False])
+    drop_rate = trial.suggest_float('drop_rate', 0.1, 0.9)
 
-    image_init = trial.suggest_categorical(f'Img_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_img = trial.suggest_categorical(f'Act_img', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_img = trial.suggest_float(f'Drop_img', 0.0, 0.9)
-    batch_norm_img = trial.suggest_categorical(f'Img_BatchN', choices = ['On', 'Off'])
+    if drop_on:
+        image_features_input = Dropout(drop_rate)(image_features_input)
 
-    for i in range(img_num_layers):
-
-        num_img_units = trial.suggest_int(f'Num_img_{i}', 32, max_img_units, log = True)
-        img_dense = Dense(num_img_units, activation=activation_img, kernel_initializer = image_init)(img_dense)
-        img_dense = Dropout(drop_img)(img_dense)
-
-        max_img_units = min(max_img_units, num_img_units)
-
-    if batch_norm_img == 'On':
-        img_dense = layers.BatchNormalization()(img_dense)
-
-
-    tab_num_layers = trial.suggest_int('Tabular layers', 1, 3)
-    max_tab_units = 3000
-    tab_dense = tabular_data_input
-    tab_init = trial.suggest_categorical(f'Tab_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_tab = trial.suggest_categorical(f'Act_tab', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_tab = trial.suggest_float(f'Drop_tab', 0.0, 0.9)
-    batch_norm_tab = trial.suggest_categorical(f'Tab_BatchN', choices = ['On', 'Off'])
-
-    for i in range(tab_num_layers):
-
-        num_tab_units = trial.suggest_int(f'Num_tab_{i}', 16, max_tab_units, log = True)
-        tab_dense = Dense(num_tab_units, activation=activation_tab, kernel_initializer = tab_init)(tab_dense)
-        tab_dense = Dropout(drop_tab)(tab_dense)
-
-        max_tab_units = min(max_tab_units, num_tab_units)
-
-    if batch_norm_tab == 'On':
-        tab_dense = layers.BatchNormalization()(tab_dense)
-
-    concatenated = Concatenate()([img_dense, tab_dense])
-    com_num_layers = trial.suggest_int('Concat layers', 1, 3)
-    max_com_units = 3000
-    con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
-    activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_common = trial.suggest_float(f'Drop_con', 0.0, 0.9)
-    batch_norm_common = trial.suggest_categorical(f'Com_BatchN', ['On', 'Off'])
-
-    for i in range(com_num_layers):
-
-        num_common_units = trial.suggest_int(f'Num_con_{i}', 32, max_com_units, log = True)
-        concatenated = Dense(num_common_units, activation=activation_common, kernel_initializer = con_init)(concatenated)
-        concatenated = Dropout(drop_common)(concatenated)
-
-        max_com_units = min(max_com_units, num_common_units)
-
-    if batch_norm_common == 'On':
-        concatenated = layers.BatchNormalization()(concatenated)
-
-    output = Dense(6, activation='linear')(concatenated)
-    model = Model(inputs=[image_features_input, tabular_data_input], outputs=output)
+    
+    output = Dense(6, activation='linear')(image_features_input)
+    model = Model(inputs=image_features_input, outputs=output)
 
     optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
@@ -221,34 +169,44 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'log15': 15, 'sqrt': 'sqrt', 'cbrt': 'cbrt', 'log20': 20, 'log30' : 30}
-    log_transforms = {}
+    transformation_options = {
+        'none': lambda x: x,
+        'log': lambda x, base: np.log(x) / np.log(base),
+        'power': lambda x, exp: np.power(x, exp)
+    }
+
+    # Luodaan sanakirja muunnoksille
+    transformations = {}
+
     for target in mean_columns:
-        log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
-        log_transforms[target] = log_base_options[log_base]
-    
-    callbacks = [
-                 ReduceLROnPlateau('val_mae', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+        # Valitse, käytetäänkö logaritmia, potenssia tai ei kumpaakaan
+        method = trial.suggest_categorical(f'method_{target}', ['none', 'log', 'power'])
 
-    for target, log_base in log_transforms.items():
-        if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
-            y_train_transformed[target] = np.log(y_train[target]) / np.log(log_base)
-            y_valid_transformed[target] = np.log(y_valid[target]) / np.log(log_base)
+        if method == 'log':
+            # Ehdota logaritmin kantaa välillä 2-50
+            base = trial.suggest_int(f'log_base_{target}', 2, 50)
+            transformations[target] = (method, base)
+        elif method == 'power':
+            # Ehdota eksponenttia välillä 0.1-0.5
+            exponent = trial.suggest_float(f'power_exp_{target}', 0.1, 0.5)
+            transformations[target] = (method, exponent)
+        else:
+            transformations[target] = (method, None)
 
-        elif log_base == 'sqrt':
-            y_train_transformed[target] = np.sqrt(y_train[target])
-            y_valid_transformed[target] = np.sqrt(y_valid[target])
-
-        elif log_base == 'cbrt':
-            y_train_transformed[target] = np.cbrt(y_train[target])
-            y_valid_transformed[target] = np.cbrt(y_valid[target])
-
+    # Simuloi datan muunnos ja arvioi mallia
+    for target in mean_columns:
+        method, param = transformations[target]
+        if method != 'none':
+            y_train_transformed[target] = transformation_options[method](y_train[target], param)
+            y_valid_transformed[target] = transformation_options[method](y_valid[target], param)
         else:
             y_train_transformed[target] = y_train[target]
             y_valid_transformed[target] = y_valid[target]
+            
+
     
     
-    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler(), 'power': PowerTransformer()}
+    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler()}
     scaler_transforms = {}
     for target in mean_columns:
         scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
@@ -261,26 +219,31 @@ def objective(trial):
 
     new_best = None
     new_best_found = False
+
+    callbacks = [
+                ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
+    
     for epoch in range(17):
 
-        model.fit([X_train_feat, X_train_tab], y_train_transformed, validation_data=([X_valid_feat, X_valid_tab], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
-        preds_transformed = model.predict([X_valid_feat, X_valid_tab], verbose = 0)        
+        model.fit(X_train_feat, y_train_transformed, validation_data=(X_valid_feat, y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
+        preds_transformed = model.predict(X_valid_feat, verbose = 0)        
 
     
         try:        
+            
             for i, target in enumerate(mean_columns):
                 scaler = scaler_transforms[target]
                 if scaler is not None:
                     preds_transformed[:, i] = scaler.inverse_transform(preds_transformed[:, i].reshape(-1, 1)).flatten()                
 
             for i, target in enumerate(mean_columns):
-                log_base = log_transforms[target]
-                if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
-                    preds_transformed[:, i] = np.power(log_base, preds_transformed[:, i])                
-                elif log_base == 'sqrt':   
-                    preds_transformed[:, i] = np.square(preds_transformed[:, i])    
-                elif log_base == 'cbrt':
-                    preds_transformed[:, i] = np.power(preds_transformed[:, i], 3)
+                method, param = transformations[target]
+                if method == 'log':
+                    # Käänteinen logaritmimuunnos
+                    preds_transformed[:, i] = np.power(param, preds_transformed[:, i])
+                elif method == 'power':
+                    # Käänteinen potenssimuunnos
+                    preds_transformed[:, i] = np.power(preds_transformed[:, i], 1 / param)
 
             r2_score_inv = r2_score_safe(y_valid, preds_transformed)                        
 
@@ -345,7 +308,7 @@ def objective(trial):
                     best_log_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_log_transforms.pickle'
                     print(f'Saving log transforms to {best_log_transforms_name}')
                     with open(best_log_transforms_name, 'wb') as f:
-                        pickle.dump(log_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                        pickle.dump(transformations, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                     scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                     print(f'Saving scalers to {scaler_transforms_name}')
@@ -385,7 +348,7 @@ def objective(trial):
                 best_log_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_log_transforms.pickle'
                 print(f'Saving log transforms to {best_log_transforms_name}')
                 with open(best_log_transforms_name, 'wb') as f:
-                    pickle.dump(log_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(transformations, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                 scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                 print(f'Saving scalers to {scaler_transforms_name}')
@@ -421,7 +384,7 @@ def objective(trial):
                 best_log_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_log_transforms.pickle'
                 print(f'Saving log transforms to {best_log_transforms_name}')
                 with open(best_log_transforms_name, 'wb') as f:
-                    pickle.dump(log_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(transformations, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                 scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                 print(f'Saving scalers to {scaler_transforms_name}')
@@ -456,7 +419,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///420_kaikkimukana.db',
+                            storage=f'sqlite:///421_effimuunnokset.db',
                             load_if_exists=True,
                             pruner=pruner
                             )

@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '419_stdminmax_lrreduce_images_3'
+study_name = '419_stdminmax_lrred_images_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -121,7 +121,7 @@ def create_model(trial):
 
     img_dense_avg = image_avg_input
 
-    max_img_avg_units = 3000
+    max_img_avg_units = 1000
     num_img_avg = trial.suggest_int('ImAvg_layers', 1, 2)
     Imavg_init = trial.suggest_categorical(f'ImAvg_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
     activation_imavg = trial.suggest_categorical(f'ImAvg_act', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
@@ -154,7 +154,7 @@ def create_model(trial):
 
     img_dense_max = images_max_input
 
-    max_immax_units = 3000
+    max_immax_units = 1000
     num_img_max_layers = trial.suggest_int('ImMax_layers', 1, 2)
     Immax_init = trial.suggest_categorical(f'ImMax_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
     activation_immax = trial.suggest_categorical(f'ImMax_act', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
@@ -188,7 +188,7 @@ def create_model(trial):
 
     concatenated = Concatenate()([img_dense_avg, img_dense_max])
     
-    max_com_units = 3000
+    max_com_units = 1000
     com_num_layers = trial.suggest_int('Concat layers', 1, 3)
     con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
     activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
@@ -256,10 +256,10 @@ def objective(trial):
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
         log_transforms[target] = log_base_options[log_base]
 
-    if trial['loss'] == 'mape':
+    if trial.params['loss'] == 'mape':
         callbacks = [
                  ReduceLROnPlateau('val_mape', patience=2, factor=0.7, mode = 'min', verbose = 0)]
-    elif trial['loss'] == 'mse':
+    elif trial.params['loss'] == 'mse':
         callbacks = [
                  ReduceLROnPlateau('val_mse', patience=2, factor=0.7, mode = 'min', verbose = 0)]
     else:
@@ -502,6 +502,23 @@ study = optuna.create_study(direction='maximize',
                             load_if_exists=True,
                             pruner=pruner
                             )
+
+#### enquing trials
+
+# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
+# study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+
+# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
+# study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+
+# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
+# study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+
+
+###
 
 search_time_taken = 0
 search_start = time.time()

@@ -7,20 +7,6 @@ import pickle
 import tensorflow as tf
 import numpy as np
 import gc
-import numpy as np
-import tensorflow as tf
-from tensorflow.keras.layers import Input, Dense, Concatenate, Dropout
-from tensorflow.keras.models import Model
-from optuna.integration import TFKerasPruningCallback
-import optuna
-from keras import regularizers, layers, optimizers, initializers
-from keras.callbacks import EarlyStopping, ReduceLROnPlateau, TerminateOnNaN
-from datetime import timedelta
-import time
-from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer, RobustScaler
-from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
-from sklearn.preprocessing import StandardScaler, RobustScaler
-import logging
 
 pickle_file_path = './data/test_df.pickle'
 
@@ -31,26 +17,19 @@ pickle_file_path = './data/train_df.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
-
-features = pd.read_csv('./data/test.csv')
-FEATURE_COLS = features.columns[1:].tolist()
     
 
-study_name = '420_stdminmaxpower_allfeatures_3'
+study_name = '419_onepipe_lrchoice_falloutkalja_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
 
-# selected_features_pickle_path = './data/selected_features_list.pickle'
-# with open(selected_features_pickle_path, 'rb') as f:
-#     FEATURE_COLS = pickle.load(f)
 
-
-train_df_original = train_df.copy()
+from sklearn.preprocessing import StandardScaler, RobustScaler
 
 print(train_df['fold'].value_counts())
 
-
+# scaler = StandardScaler() # TODO testaa robustscaler
 scaler = RobustScaler()
 
 sample_df = train_df.copy()
@@ -58,23 +37,29 @@ train_df = sample_df[sample_df.fold != 3]
 valid_df = sample_df[sample_df.fold == 3]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
-train_df[FEATURE_COLS] = scaler.fit_transform(train_df[FEATURE_COLS].values)
-valid_df[FEATURE_COLS] = scaler.transform(valid_df[FEATURE_COLS].values)
 
-scaler_tabufeatures_name = f'./NN_search/scaler_tabufeatures_{study_name}_train.pickle'
-print(f"Saving scaler to {scaler_tabufeatures_name}")
-with open(f'{scaler_tabufeatures_name}', 'wb') as f:
-    pickle.dump(scaler, f)
 
-X_train_tab = train_df[FEATURE_COLS].values
-X_train_feat = np.stack(train_df['features'].values)
+X_train = np.stack(train_df['features'].values)
 y_train = train_df[mean_columns]
 
-X_valid_tab = valid_df[FEATURE_COLS].values 
-X_valid_feat = np.stack(valid_df['features'].values)
+X_valid = np.stack(valid_df['features'].values)
 y_valid = valid_df[mean_columns]
 
+import numpy as np
+import tensorflow as tf
+from tensorflow.keras.layers import Input, Dense, Concatenate, Dropout
+from tensorflow.keras.models import Model
+from optuna.integration import TFKerasPruningCallback
+import optuna
+from keras import regularizers, layers, optimizers, initializers
+from keras.callbacks import EarlyStopping, ReduceLROnPlateau, TerminateOnNaN
+from datetime import timedelta
+import time
+import os
+from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer, RobustScaler
+from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 
+import os
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
 print(f'Current GPU allocator: {os.getenv("TF_GPU_ALLOCATOR")}')
 
@@ -86,6 +71,7 @@ if gpus:
             tf.config.experimental.set_memory_growth(gpu, True)
     except RuntimeError as e:
         print(e)
+
 
 np.seterr(over='ignore')
 
@@ -128,86 +114,52 @@ def r2_score_tf(y_true, y_pred):
 
 def create_model(trial):
 
-    image_features_input = Input(shape=(X_train_feat.shape[1],), name='image_features_input')
-    tabular_data_input = Input(shape=(X_train_tab.shape[1],), name='tabular_data_input')
+    image_input = Input(shape=(X_train.shape[1],), name='image_input')
+    
 
-    img_num_layers = trial.suggest_int('Imgage layers', 1, 3)
-    max_img_units = 3000
-    img_dense = image_features_input
+    img_dense = image_input
 
-    image_init = trial.suggest_categorical(f'Img_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_img = trial.suggest_categorical(f'Act_img', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_img = trial.suggest_float(f'Drop_img', 0.0, 0.9)
-    batch_norm_img = trial.suggest_categorical(f'Img_BatchN', choices = ['On', 'Off'])
+    max_units = 1000
+    num_layers = trial.suggest_int('layers', 1, 3)
 
-    for i in range(img_num_layers):
+    for i in range(num_layers):
 
-        num_img_units = trial.suggest_int(f'Num_img_{i}', 32, max_img_units, log = True)
-        img_dense = Dense(num_img_units, activation=activation_img, kernel_initializer = image_init)(img_dense)
-        img_dense = Dropout(drop_img)(img_dense)
+        init = trial.suggest_categorical(f'init_{i}', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+        activation = trial.suggest_categorical(f'act_{i}', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
+        drop = trial.suggest_float(f'D_{i}', 0.0, 0.9)
+        norm = trial.suggest_categorical(f'N_{i}', choices = ['On', 'Off'])
+        drop_on = trial.suggest_categorical(f'D_in_{i}', choices = ['On', 'Off'])
+        units = trial.suggest_int(f'num_{i}', 32, max_units)
 
-        max_img_units = min(max_img_units, num_img_units)
-
-    if batch_norm_img == 'On':
-        img_dense = layers.BatchNormalization()(img_dense)
-
-
-    tab_num_layers = trial.suggest_int('Tabular layers', 1, 3)
-    max_tab_units = 3000
-    tab_dense = tabular_data_input
-    tab_init = trial.suggest_categorical(f'Tab_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_tab = trial.suggest_categorical(f'Act_tab', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_tab = trial.suggest_float(f'Drop_tab', 0.0, 0.9)
-    batch_norm_tab = trial.suggest_categorical(f'Tab_BatchN', choices = ['On', 'Off'])
-
-    for i in range(tab_num_layers):
-
-        num_tab_units = trial.suggest_int(f'Num_tab_{i}', 16, max_tab_units, log = True)
-        tab_dense = Dense(num_tab_units, activation=activation_tab, kernel_initializer = tab_init)(tab_dense)
-        tab_dense = Dropout(drop_tab)(tab_dense)
-
-        max_tab_units = min(max_tab_units, num_tab_units)
-
-    if batch_norm_tab == 'On':
-        tab_dense = layers.BatchNormalization()(tab_dense)
-
-    concatenated = Concatenate()([img_dense, tab_dense])
-    com_num_layers = trial.suggest_int('Concat layers', 1, 3)
-    max_com_units = 3000
-    con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
-    activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_common = trial.suggest_float(f'Drop_con', 0.0, 0.9)
-    batch_norm_common = trial.suggest_categorical(f'Com_BatchN', ['On', 'Off'])
-
-    for i in range(com_num_layers):
-
-        num_common_units = trial.suggest_int(f'Num_con_{i}', 32, max_com_units, log = True)
-        concatenated = Dense(num_common_units, activation=activation_common, kernel_initializer = con_init)(concatenated)
-        concatenated = Dropout(drop_common)(concatenated)
-
-        max_com_units = min(max_com_units, num_common_units)
-
-    if batch_norm_common == 'On':
-        concatenated = layers.BatchNormalization()(concatenated)
-
-    output = Dense(6, activation='linear')(concatenated)
-    model = Model(inputs=[image_features_input, tabular_data_input], outputs=output)
+        img_dense = Dense(units, activation=activation, kernel_initializer = init)(img_dense)
+        if norm == 'On':
+            img_dense = layers.BatchNormalization()(img_dense)
+        if drop_on == 'On':
+            img_dense = Dropout(drop)(img_dense)
+          
+        max_units = min(max_units, units)
+        
+    output = Dense(6, activation='linear')(img_dense)
+    model = Model(inputs=image_input, outputs=output)
 
     optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
 
-    if optimizer_selected == 'adam':
-        optimizer = optimizers.Adam()
-    elif optimizer_selected == 'rmsprop':
-        optimizer = optimizers.RMSprop()        
-    elif optimizer_selected == 'Ftrl':
-        optimizer = optimizers.Ftrl()
-    else:
-        optimizer = optimizers.Adamax()
+    lr = trial.suggest_float('lr', 1e-4, 1e-1, log = True)
 
-    loss = trial.suggest_categorical('loss', ['mae', 'mse'])
+    if optimizer_selected == 'adam':
+        optimizer = optimizers.Adam(learning_rate = lr)
+    elif optimizer_selected == 'rmsprop':
+        optimizer = optimizers.RMSprop(learning_rate = lr)        
+    elif optimizer_selected == 'Ftrl':
+        optimizer = optimizers.Ftrl(learning_rate = lr)
+    else:
+        optimizer = optimizers.Adamax(learning_rate = lr)
         
-    model.compile(optimizer=optimizer, loss=loss, metrics=['mse','mae', 'mape' ,r2_score_tf])
+    loss_function = trial.suggest_categorical('loss', ['mse', 'mae', 'mape'])
+
+    model.compile(optimizer=optimizer, loss=loss_function, metrics=['mse','mae', 'mape' , r2_score_tf])
+    
     
     return model
 
@@ -226,9 +178,20 @@ def objective(trial):
     for target in mean_columns:
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
         log_transforms[target] = log_base_options[log_base]
-    
-    callbacks = [
+
+    if trial.params['loss'] == 'mape':
+        callbacks = [
+                 ReduceLROnPlateau('val_mape', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+    elif trial.params['loss'] == 'mse':
+        callbacks = [
+                 ReduceLROnPlateau('val_mse', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+    else:
+        callbacks = [
                  ReduceLROnPlateau('val_mae', patience=2, factor=0.7, mode = 'min', verbose = 0)]
+        
+    
+    # callbacks = [
+    #              ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
 
     for target, log_base in log_transforms.items():
         if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
@@ -248,7 +211,7 @@ def objective(trial):
             y_valid_transformed[target] = y_valid[target]
     
     
-    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler(), 'power': PowerTransformer()}
+    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler()}
     scaler_transforms = {}
     for target in mean_columns:
         scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
@@ -263,10 +226,9 @@ def objective(trial):
     new_best_found = False
     for epoch in range(17):
 
-        model.fit([X_train_feat, X_train_tab], y_train_transformed, validation_data=([X_valid_feat, X_valid_tab], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
-        preds_transformed = model.predict([X_valid_feat, X_valid_tab], verbose = 0)        
+        model.fit(X_train, y_train_transformed, validation_data=(X_valid, y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
+        preds_transformed = model.predict(X_valid, verbose = 0)        
 
-    
         try:        
             for i, target in enumerate(mean_columns):
                 scaler = scaler_transforms[target]
@@ -331,8 +293,9 @@ def objective(trial):
                     r2 = r2_score_safe(y_valid, preds_transformed)
                     mse  = mean_squared_error(y_valid, preds_transformed)
                     mae = mean_absolute_error(y_valid, preds_transformed)
+                    mape = mean_absolute_percentage_error(y_valid, preds_transformed)
                     
-                    print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}')
+                    print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}, MAPE : {mape:.5f}')
                     print(f'Best epoch : {epoch}')
 
                     best_filename = f'./NN_search/{study_name}_best_val_{r2_score_inv:.5f}_model.h5'
@@ -360,7 +323,7 @@ def objective(trial):
             return new_best
         
         if trial.number > 0 and not new_best_found:
-            if new_best > study.best_value:
+            if r2_score_inv > study.best_value:
                 new_best_found = True
             
                 print("#" * 50)                
@@ -371,8 +334,9 @@ def objective(trial):
                 r2 = r2_score_safe(y_valid, preds_transformed)
                 mse  = mean_squared_error(y_valid, preds_transformed)
                 mae = mean_absolute_error(y_valid, preds_transformed)
+                mape = mean_absolute_percentage_error(y_valid, preds_transformed)
                 
-                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}')
+                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}, MAPE : {mape:.5f}')
                 print(f'Best epoch : {epoch}')
 
                 best_filename = f'./NN_search/{study_name}_best_val_{r2_score_inv:.5f}_model.h5'
@@ -407,8 +371,9 @@ def objective(trial):
                 r2 = r2_score_safe(y_valid, preds_transformed)
                 mse  = mean_squared_error(y_valid, preds_transformed)
                 mae = mean_absolute_error(y_valid, preds_transformed)
+                mape = mean_absolute_percentage_error(y_valid, preds_transformed)
                 
-                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}')
+                print(f'Best epoch all errors R2 : {r2:.5f}, MSE : {mse:.5f}, MAE : {mae:.5f}, MAPE : {mape:.5f}')
                 print(f'Best epoch : {epoch}')
 
                 best_filename = f'./NN_search/{study_name}_best_val_{r2_score_inv:.5f}_model.h5'
@@ -456,17 +421,34 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///420_kaikkimukana.db',
+                            storage=f'sqlite:///419_onepipe.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
+
+### enquing trials
+
+study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
+study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+
+study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
+study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+
+study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
+study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
+
+
+###
 
 search_time_taken = 0
 search_start = time.time()
 round = 0
 trials_done = 0
 
-
+import logging
 
 logging.basicConfig(level=logging.INFO, 
                     format='%(asctime)s - %(levelname)s - %(message)s')
@@ -480,7 +462,7 @@ if os.path.exists(f'./NN_search/{study_name}_genesampler.pickle'):
         genemachine = pickle.load(f)
 else:
     print('Creating new gene sampler')
-    genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover(), mutation_prob = 0.03)
+    genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover())
 
 if os.path.exists(f'./NN_search/{study_name}_qmc_sampler.pickle'):
     with open(f'./NN_search/{study_name}_qmc_sampler.pickle', 'rb') as f:
@@ -505,6 +487,8 @@ if os.path.exists(f'./NN_search/{study_name}_pruner.pickle'):
 
 
 while search_time_taken < search_time_max:
+
+
 
     round_start = time.time()
 
