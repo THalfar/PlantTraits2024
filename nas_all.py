@@ -36,7 +36,7 @@ features = pd.read_csv('./data/test.csv')
 FEATURE_COLS = features.columns[1:].tolist()
     
 
-study_name = '420_stdminmaxpower_allfeatures_3'
+study_name = '423_std_logpower_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -221,7 +221,7 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'log15': 15, 'sqrt': 'sqrt', 'cbrt': 'cbrt', 'log20': 20, 'log30' : 30}
+    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'sqrt': 'sqrt', 'cbrt': 'cbrt'}
     log_transforms = {}
     for target in mean_columns:
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
@@ -247,17 +247,10 @@ def objective(trial):
             y_train_transformed[target] = y_train[target]
             y_valid_transformed[target] = y_valid[target]
     
-    
-    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler(), 'power': PowerTransformer()}
-    scaler_transforms = {}
-    for target in mean_columns:
-        scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
-        scaler_transforms[target] = scaler_base_options[scaler_base]
-    
-    for target, scaler in scaler_transforms.items():
-        if scaler is not None:
-            y_train_transformed[target] = scaler.fit_transform(y_train_transformed[target].values.reshape(-1, 1)).flatten()
-            y_valid_transformed[target] = scaler.transform(y_valid_transformed[target].values.reshape(-1, 1)).flatten()
+    std_scaler = StandardScaler()
+
+    y_train_transformed['mean_columns'] = std_scaler.fit_transform(y_train_transformed[mean_columns].values)
+    y_valid_transformed['mean_columns'] = std_scaler.transform(y_valid_transformed[mean_columns].values)
 
     new_best = None
     new_best_found = False
@@ -268,11 +261,9 @@ def objective(trial):
 
     
         try:        
-            for i, target in enumerate(mean_columns):
-                scaler = scaler_transforms[target]
-                if scaler is not None:
-                    preds_transformed[:, i] = scaler.inverse_transform(preds_transformed[:, i].reshape(-1, 1)).flatten()                
-
+           
+            preds_transformed = std_scaler.inverse_transform(preds_transformed)
+            
             for i, target in enumerate(mean_columns):
                 log_base = log_transforms[target]
                 if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
@@ -350,7 +341,7 @@ def objective(trial):
                     scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                     print(f'Saving scalers to {scaler_transforms_name}')
                     with open(scaler_transforms_name, 'wb') as f:
-                        pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                        pickle.dump(std_scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                     print("*" * 50)
                 
@@ -390,7 +381,7 @@ def objective(trial):
                 scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                 print(f'Saving scalers to {scaler_transforms_name}')
                 with open(scaler_transforms_name, 'wb') as f:
-                    pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(std_scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                 print("#" * 50)                
 
@@ -426,7 +417,7 @@ def objective(trial):
                 scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                 print(f'Saving scalers to {scaler_transforms_name}')
                 with open(scaler_transforms_name, 'wb') as f:
-                    pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(std_scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         
     if os.path.exists(f'./NN_search/{study_name}_search_model.h5'):
