@@ -36,7 +36,7 @@ features = pd.read_csv('./data/test.csv')
 FEATURE_COLS = features.columns[1:].tolist()
     
 
-study_name = '423_std_logpower_3'
+study_name = '423_std_powerlog_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -205,9 +205,9 @@ def create_model(trial):
     else:
         optimizer = optimizers.Adamax()
 
-    loss = trial.suggest_categorical('loss', ['mae', 'mse'])
+    
         
-    model.compile(optimizer=optimizer, loss=loss, metrics=['mse','mae', 'mape' ,r2_score_tf])
+    model.compile(optimizer=optimizer, loss='mae', metrics=['mse','mae', 'mape' ,r2_score_tf])
     
     return model
 
@@ -249,8 +249,12 @@ def objective(trial):
     
     std_scaler = StandardScaler()
 
-    y_train_transformed['mean_columns'] = std_scaler.fit_transform(y_train_transformed[mean_columns].values)
-    y_valid_transformed['mean_columns'] = std_scaler.transform(y_valid_transformed[mean_columns].values)
+    y_train_transformed = y_train_transformed[mean_columns].values
+    y_valid_transformed = y_valid_transformed[mean_columns].values
+
+    y_train_transformed = std_scaler.fit_transform(y_train_transformed)
+    y_valid_transformed = std_scaler.transform(y_valid_transformed)
+
 
     new_best = None
     new_best_found = False
