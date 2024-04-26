@@ -8,18 +8,18 @@ import tensorflow as tf
 import numpy as np
 import gc
 
-pickle_file_path = './data/test_df.pickle'
+pickle_file_path = './data/test_convnextbase_df_003_998.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     test_df = pickle.load(f)
 
-pickle_file_path = './data/train_df.pickle'
+pickle_file_path = './data/train_convnextbase_df_003_998.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '419_stdminmax_lrred_images_3'
+study_name = '426_convnextbase_003_998_1'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -33,18 +33,16 @@ print(train_df['fold'].value_counts())
 scaler = RobustScaler()
 
 sample_df = train_df.copy()
-train_df = sample_df[sample_df.fold != 3]
-valid_df = sample_df[sample_df.fold == 3]
+train_df = sample_df[sample_df.fold != 1]
+valid_df = sample_df[sample_df.fold == 1]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
 
 X_train_avg = np.stack(train_df['features_avg'].values)
-X_train_max = np.stack(train_df['features_max'].values)
 y_train = train_df[mean_columns]
 
 X_valid_avg = np.stack(valid_df['features_avg'].values)
-X_valid_max = np.stack(valid_df['features_max'].values)
 y_valid = valid_df[mean_columns]
 
 import numpy as np
@@ -117,109 +115,32 @@ def r2_score_tf(y_true, y_pred):
 def create_model(trial):
 
     image_avg_input = Input(shape=(X_train_avg.shape[1],), name='image_avg')
-    images_max_input = Input(shape=(X_train_max.shape[1],), name='image_max')
 
     img_dense_avg = image_avg_input
 
-    max_img_avg_units = 1000
-    num_img_avg = trial.suggest_int('ImAvg_layers', 1, 2)
-    Imavg_init = trial.suggest_categorical(f'ImAvg_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_imavg = trial.suggest_categorical(f'ImAvg_act', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_img_avg = trial.suggest_float(f'ImAvg_D', 0.0, 0.9)
-    norm_img_avg = trial.suggest_categorical(f'ImAvg_N', choices = ['On', 'Off'])
-    drop_all_imgavg = trial.suggest_categorical(f'ImAvg_DALL', choices = ['On', 'Off'])
-    norm_img_avg_all = trial.suggest_categorical(f'ImAvg_NALL', choices = ['On', 'Off'])
-
+    max_img_avg_units = 4200
+    num_img_avg = trial.suggest_int('ImAvg_layers', 1, 4)
+    
     for i in range(num_img_avg):
 
-        num_img_avg_units = trial.suggest_int(f'ImAvg_#{i}', 16, max_img_avg_units)
-        img_dense_avg = Dense(num_img_avg_units, activation=activation_imavg, kernel_initializer = Imavg_init)(img_dense_avg)
-          
-        if norm_img_avg == 'On':
-            if norm_img_avg_all == 'On':
-                img_dense_avg = layers.BatchNormalization()(img_dense_avg)
+        num_img_avg_units = trial.suggest_int(f'ImAvg_{i}', 32, max_img_avg_units, log = True)
+        img_activation = trial.suggest_categorical(f'ImAvg_act_{i}', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
+        img_initializer = trial.suggest_categorical(f'ImAvg_init_{i}', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+        img_norm = trial.suggest_categorical(f'ImAvg_Norm_{i}', choices = ['On', 'Off'])
+        img_drop = trial.suggest_float(f'ImAvg_Drop_{i}', 0.0, 0.9)
 
-        if drop_all_imgavg == 'On':
-            img_dense_avg = Dropout(drop_img_avg)(img_dense_avg)      
+        img_dense_avg = Dense(num_img_avg_units, activation=img_activation, kernel_initializer = img_initializer)(img_dense_avg)
+        
+        if img_norm == 'On':            
+            img_dense_avg = layers.BatchNormalization()(img_dense_avg)
+
+        img_dense_avg = Dropout(img_drop)(img_dense_avg)      
 
         max_img_avg_units = min(max_img_avg_units, num_img_avg_units)
 
-    if norm_img_avg == 'On':
-        if norm_img_avg_all == 'Off':
-            img_dense_avg = layers.BatchNormalization()(img_dense_avg)
-    
-    if drop_all_imgavg == 'Off':
-        img_dense_avg = Dropout(drop_img_avg)(img_dense_avg)
 
-
-    img_dense_max = images_max_input
-
-    max_immax_units = 1000
-    num_img_max_layers = trial.suggest_int('ImMax_layers', 1, 2)
-    Immax_init = trial.suggest_categorical(f'ImMax_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
-    activation_immax = trial.suggest_categorical(f'ImMax_act', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_img_max = trial.suggest_float(f'ImMax_D', 0.0, 0.9)
-    norm_img_max = trial.suggest_categorical(f'ImMax_N', choices = ['On', 'Off'])
-    drop_all_immax = trial.suggest_categorical(f'ImMax_DALL', choices = ['On', 'Off'])
-    norm_immax_all = trial.suggest_categorical(f'ImMax_NALL', choices = ['On', 'Off'])
-
-    for i in range(num_img_max_layers):
-
-        num_img_max_units = trial.suggest_int(f'ImMax_#{i}', 16, max_immax_units)
-        img_dense_max = Dense(num_img_max_units, activation=activation_immax, kernel_initializer = Immax_init)(img_dense_max)
-       
-        if norm_img_max == 'On':
-            if norm_immax_all == 'On':
-                img_dense_max = layers.BatchNormalization()(img_dense_max)
-
-        if drop_all_immax == 'On':
-            img_dense_max = Dropout(drop_img_max)(img_dense_max)
-    
-        max_immax_units = min(max_immax_units, num_img_max_units)
-
-    if norm_img_max == 'On':
-        if norm_immax_all == 'Off':
-            img_dense_max = layers.BatchNormalization()(img_dense_max)
-    
-    if drop_all_immax == 'Off':
-        img_dense_max = Dropout(drop_img_max)(img_dense_max)
-
-
-
-    concatenated = Concatenate()([img_dense_avg, img_dense_max])
-    
-    max_com_units = 1000
-    com_num_layers = trial.suggest_int('Concat layers', 1, 3)
-    con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
-    activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
-    drop_common = trial.suggest_float(f'Drop_con', 0.0, 0.9)
-    batch_norm_common = trial.suggest_categorical(f'Com_BatchN', ['On', 'Off'])
-    drop_commo_all = trial.suggest_categorical(f'Drop_con_all', ['On', 'Off'])
-    norm_common_all = trial.suggest_categorical(f'Norm_con_all', ['On', 'Off'])
-
-    for i in range(com_num_layers):
-
-        num_common_units = trial.suggest_int(f'Num_con_{i}', 16, max_com_units, log = True)
-        concatenated = Dense(num_common_units, activation=activation_common, kernel_initializer = con_init)(concatenated)
-        
-        if batch_norm_common == 'On':
-            if norm_common_all == 'On':
-                concatenated = layers.BatchNormalization()(concatenated)
-
-        if drop_commo_all == 'On':
-            concatenated = Dropout(drop_common)(concatenated)
-
-        max_com_units = min(max_com_units, num_common_units)
-
-    if batch_norm_common == 'On':
-        if norm_common_all == 'Off':
-            concatenated = layers.BatchNormalization()(concatenated)
-    
-    if drop_commo_all == 'Off':
-        concatenated = Dropout(drop_common)(concatenated)
-
-    output = Dense(6, activation='linear')(concatenated)
-    model = Model(inputs=[image_avg_input, images_max_input], outputs=output)
+    output = Dense(6, activation='linear')(img_dense_avg)
+    model = Model(inputs=[image_avg_input], outputs=output)
 
     optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
@@ -250,7 +171,7 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'log15': 15, 'sqrt': 'sqrt', 'cbrt': 'cbrt', 'log20': 20, 'log30' : 30}
+    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'sqrt': 'sqrt', 'cbrt': 'cbrt', 'log7' : 7, 'log11' : 11, 'log13' : 13, 'log3' : 3, 'log4' : 4}
     log_transforms = {}
     for target in mean_columns:
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
@@ -287,30 +208,24 @@ def objective(trial):
             y_train_transformed[target] = y_train[target]
             y_valid_transformed[target] = y_valid[target]
     
-    
-    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler()}
-    scaler_transforms = {}
-    for target in mean_columns:
-        scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
-        scaler_transforms[target] = scaler_base_options[scaler_base]
-    
-    for target, scaler in scaler_transforms.items():
-        if scaler is not None:
-            y_train_transformed[target] = scaler.fit_transform(y_train_transformed[target].values.reshape(-1, 1)).flatten()
-            y_valid_transformed[target] = scaler.transform(y_valid_transformed[target].values.reshape(-1, 1)).flatten()
+    std_scaler = StandardScaler()
+
+    y_train_transformed = y_train_transformed[mean_columns].values
+    y_valid_transformed = y_valid_transformed[mean_columns].values
+
+    y_train_transformed = std_scaler.fit_transform(y_train_transformed)
+    y_valid_transformed = std_scaler.transform(y_valid_transformed)
 
     new_best = None
     new_best_found = False
+    
     for epoch in range(17):
 
-        model.fit([X_train_avg, X_train_max], y_train_transformed, validation_data=([X_valid_avg, X_valid_max], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
-        preds_transformed = model.predict([X_valid_avg, X_valid_max], verbose = 0)        
+        model.fit(X_train_avg, y_train_transformed, validation_data=(X_valid_avg, y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
+        preds_transformed = model.predict(X_valid_avg, verbose = 0)        
 
         try:        
-            for i, target in enumerate(mean_columns):
-                scaler = scaler_transforms[target]
-                if scaler is not None:
-                    preds_transformed[:, i] = scaler.inverse_transform(preds_transformed[:, i].reshape(-1, 1)).flatten()                
+            preds_transformed = std_scaler.inverse_transform(preds_transformed)           
 
             for i, target in enumerate(mean_columns):
                 log_base = log_transforms[target]
@@ -390,7 +305,7 @@ def objective(trial):
                     scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                     print(f'Saving scalers to {scaler_transforms_name}')
                     with open(scaler_transforms_name, 'wb') as f:
-                        pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                        pickle.dump(std_scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                     print("*" * 50)
                 
@@ -431,7 +346,7 @@ def objective(trial):
                 scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                 print(f'Saving scalers to {scaler_transforms_name}')
                 with open(scaler_transforms_name, 'wb') as f:
-                    pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(std_scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
 
                 print("#" * 50)                
 
@@ -468,7 +383,7 @@ def objective(trial):
                 scaler_transforms_name = f'./NN_search/{study_name}_{r2_score_inv:.5f}_best_scalers.pickle'
                 print(f'Saving scalers to {scaler_transforms_name}')
                 with open(scaler_transforms_name, 'wb') as f:
-                    pickle.dump(scaler_transforms, f, protocol=pickle.HIGHEST_PROTOCOL)
+                    pickle.dump(std_scaler, f, protocol=pickle.HIGHEST_PROTOCOL)
 
         
     if os.path.exists(f'./NN_search/{study_name}_search_model.h5'):
@@ -498,25 +413,10 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///418_images.db',
+                            storage=f'sqlite:///425_convnext_uus_1.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
-
-#### enquing trials
-
-# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
-# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
-# study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
-
-# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
-# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
-# study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
-
-# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log2', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
-# study.enqueue_trial({'Log_X4': 'log15', 'Scaler_X4': 'minmax', 'Log_X11': 'log20', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log30', 'Scaler_X50': 'none', 'Log_X26': 'log10', 'Scaler_X26': 'Std', 'Log_X3112': 'log10', 'Scaler_X3112': 'none'})
-# study.enqueue_trial({'Log_X4': 'log2', 'Scaler_X4': 'none', 'Log_X11': 'cbrt', 'Scaler_X11': 'none', 'Log_X18': 'log10', 'Scaler_X18': 'none', 'Log_X50': 'log10', 'Scaler_X50': 'none', 'Log_X26': 'sqrt', 'Scaler_X26': 'Std', 'Log_X3112': 'log30', 'Scaler_X3112': 'none'})
-
 
 ###
 

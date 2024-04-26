@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '419_onepipe_lrchoice_falloutkalja_3'
+study_name = '425_convnet_003_993_avg'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -33,8 +33,8 @@ print(train_df['fold'].value_counts())
 scaler = RobustScaler()
 
 sample_df = train_df.copy()
-train_df = sample_df[sample_df.fold != 3]
-valid_df = sample_df[sample_df.fold == 3]
+train_df = sample_df[sample_df.fold != 1]
+valid_df = sample_df[sample_df.fold == 1]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
@@ -421,7 +421,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///419_onepipe.db',
+                            storage=f'sqlite:///425_convnet_003_993.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
