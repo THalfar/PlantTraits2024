@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '426_convnextbase_003_998_1'
+study_name = '429_convnextbase_003_998_1'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -29,8 +29,6 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 
 print(train_df['fold'].value_counts())
 
-# scaler = StandardScaler() # TODO testaa robustscaler
-scaler = RobustScaler()
 
 sample_df = train_df.copy()
 train_df = sample_df[sample_df.fold != 1]
@@ -116,7 +114,14 @@ def create_model(trial):
 
     image_avg_input = Input(shape=(X_train_avg.shape[1],), name='image_avg')
 
-    img_dense_avg = image_avg_input
+    start_norm = trial.suggest_categorical('StartNorm', ['On', 'Off'])
+
+    if start_norm == 'On':
+        image_avg_input = layers.BatchNormalization()(image_avg_input)
+
+    start_drop = trial.suggest_float('StartDrop', 0.0, 0.9)
+    img_dense_input = Dropout(start_drop)(image_avg_input)
+    img_dense_avg = img_dense_input
 
     max_img_avg_units = 4200
     num_img_avg = trial.suggest_int('ImAvg_layers', 1, 4)
@@ -142,19 +147,15 @@ def create_model(trial):
     output = Dense(6, activation='linear')(img_dense_avg)
     model = Model(inputs=[image_avg_input], outputs=output)
 
-    optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
+    optimizer_options = ['adam', 'rmsprop']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
 
     if optimizer_selected == 'adam':
         optimizer = optimizers.Adam()
-    elif optimizer_selected == 'rmsprop':
+    else:         
         optimizer = optimizers.RMSprop()        
-    elif optimizer_selected == 'Ftrl':
-        optimizer = optimizers.Ftrl()
-    else:
-        optimizer = optimizers.Adamax()
         
-    loss_function = trial.suggest_categorical('loss', ['mse', 'mae', 'mape'])
+    loss_function = trial.suggest_categorical('loss', ['mse', 'mae'])
 
     model.compile(optimizer=optimizer, loss=loss_function, metrics=['mse','mae', 'mape' , r2_score_tf])
     
@@ -171,16 +172,14 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_base_options = {'none': None, 'log2': 2, 'log10': 10, 'log5': 5, 'sqrt': 'sqrt', 'cbrt': 'cbrt', 'log7' : 7, 'log11' : 11, 'log13' : 13, 'log3' : 3, 'log4' : 4}
+    log_base_options = {f'log{base}': base for base in range(2, 14)}
     log_transforms = {}
-    for target in mean_columns:
+    for target in mean_columns:        
         log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
         log_transforms[target] = log_base_options[log_base]
 
-    if trial.params['loss'] == 'mape':
-        callbacks = [
-                 ReduceLROnPlateau('val_mape', patience=2, factor=0.7, mode = 'min', verbose = 0)]
-    elif trial.params['loss'] == 'mse':
+    
+    if trial.params['loss'] == 'mse':
         callbacks = [
                  ReduceLROnPlateau('val_mse', patience=2, factor=0.7, mode = 'min', verbose = 0)]
     else:
@@ -192,21 +191,9 @@ def objective(trial):
     #              ReduceLROnPlateau('val_r2_score_tf', patience=2, factor=0.7, mode = 'max', verbose = 0)]
 
     for target, log_base in log_transforms.items():
-        if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
-            y_train_transformed[target] = np.log(y_train[target]) / np.log(log_base)
-            y_valid_transformed[target] = np.log(y_valid[target]) / np.log(log_base)
-
-        elif log_base == 'sqrt':
-            y_train_transformed[target] = np.sqrt(y_train[target])
-            y_valid_transformed[target] = np.sqrt(y_valid[target])
-
-        elif log_base == 'cbrt':
-            y_train_transformed[target] = np.cbrt(y_train[target])
-            y_valid_transformed[target] = np.cbrt(y_valid[target])
-
-        else:
-            y_train_transformed[target] = y_train[target]
-            y_valid_transformed[target] = y_valid[target]
+    
+        y_train_transformed[target] = np.log(y_train[target]) / np.log(log_base)
+        y_valid_transformed[target] = np.log(y_valid[target]) / np.log(log_base)
     
     std_scaler = StandardScaler()
 
@@ -229,12 +216,8 @@ def objective(trial):
 
             for i, target in enumerate(mean_columns):
                 log_base = log_transforms[target]
-                if log_base is not None and log_base != 'sqrt' and log_base != 'cbrt':
-                    preds_transformed[:, i] = np.power(log_base, preds_transformed[:, i])                
-                elif log_base == 'sqrt':   
-                    preds_transformed[:, i] = np.square(preds_transformed[:, i])    
-                elif log_base == 'cbrt':
-                    preds_transformed[:, i] = np.power(preds_transformed[:, i], 3)
+                preds_transformed[:, i] = np.power(log_base, preds_transformed[:, i])                
+             
 
             r2_score_inv = r2_score_safe(y_valid, preds_transformed)                        
 
