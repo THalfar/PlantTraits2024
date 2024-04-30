@@ -19,7 +19,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '429_convnextbase_003_998_1'
+study_name = '429_convnextBase_003_998_1'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -116,11 +116,13 @@ def create_model(trial):
 
     start_norm = trial.suggest_categorical('StartNorm', ['On', 'Off'])
 
+    image_avg_output = image_avg_input
+
     if start_norm == 'On':
-        image_avg_input = layers.BatchNormalization()(image_avg_input)
+        image_avg_output = layers.BatchNormalization()(image_avg_output)
 
     start_drop = trial.suggest_float('StartDrop', 0.0, 0.9)
-    img_dense_input = Dropout(start_drop)(image_avg_input)
+    img_dense_input = Dropout(start_drop)(image_avg_output)
     img_dense_avg = img_dense_input
 
     max_img_avg_units = 4200
@@ -172,11 +174,11 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_base_options = {f'log{base}': base for base in range(2, 14)}
     log_transforms = {}
-    for target in mean_columns:        
-        log_base = trial.suggest_categorical(f'Log_{target}', list(log_base_options.keys()))
-        log_transforms[target] = log_base_options[log_base]
+    for target in mean_columns:
+        # Directly suggest an integer between 2 and 13 for the log base
+        log_base = trial.suggest_int(f'Log_{target}', 2, 13)
+        log_transforms[target] = log_base
 
     
     if trial.params['loss'] == 'mse':
