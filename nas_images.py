@@ -8,41 +8,6 @@ import tensorflow as tf
 import numpy as np
 import gc
 
-pickle_file_path = './data/test_convnextbase_df_003_998.pickle'
-
-with open(pickle_file_path, 'rb') as f:
-    test_df = pickle.load(f)
-
-pickle_file_path = './data/train_convnextbase_df_003_998.pickle'
-
-with open(pickle_file_path, 'rb') as f:
-    train_df = pickle.load(f)
-    
-
-study_name = '429_convnextBase_003_998_1'
-
-mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
-
-
-
-from sklearn.preprocessing import StandardScaler, RobustScaler
-
-print(train_df['fold'].value_counts())
-
-
-sample_df = train_df.copy()
-train_df = sample_df[sample_df.fold != 1]
-valid_df = sample_df[sample_df.fold == 1]
-print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
-
-
-
-X_train_avg = np.stack(train_df['features_avg'].values)
-y_train = train_df[mean_columns]
-
-X_valid_avg = np.stack(valid_df['features_avg'].values)
-y_valid = valid_df[mean_columns]
-
 import numpy as np
 import tensorflow as tf
 from tensorflow.keras.layers import Input, Dense, Concatenate, Dropout
@@ -56,6 +21,39 @@ import time
 import os
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer, RobustScaler
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
+
+pickle_file_path = './data/test_df.pickle'
+
+with open(pickle_file_path, 'rb') as f:
+    test_df = pickle.load(f)
+
+pickle_file_path = './data/train_df.pickle'
+
+with open(pickle_file_path, 'rb') as f:
+    train_df = pickle.load(f)
+    
+
+study_name = '511_convnextbase_3'
+
+mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
+
+
+print(train_df['fold'].value_counts())
+
+
+sample_df = train_df.copy()
+train_df = sample_df[sample_df.fold != 3]
+valid_df = sample_df[sample_df.fold == 3]
+print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
+
+
+
+X_train_avg = np.stack(train_df['511_convnextbase_avgmax'].values)
+y_train = train_df[mean_columns]
+
+X_valid_avg = np.stack(valid_df['511_convnextbase_avgmax'].values)
+y_valid = valid_df[mean_columns]
+
 
 import os
 os.environ['TF_GPU_ALLOCATOR'] = 'cuda_malloc_async'
@@ -112,7 +110,7 @@ def r2_score_tf(y_true, y_pred):
 
 def create_model(trial):
 
-    image_avg_input = Input(shape=(X_train_avg.shape[1],), name='image_avg')
+    image_avg_input = Input(shape=(X_train_avg.shape[1],), name='avg_max_features')
 
     start_norm = trial.suggest_categorical('StartNorm', ['On', 'Off'])
 
@@ -385,7 +383,7 @@ num_gene = 50
 num_tpe_trial = 5
 
 
-search_time_max = 3600 * 18
+search_time_max = 3600 * 1
 
 if os.path.exists(f'./NN_search/{study_name}_pruner.pickle'):
     with open(f'./NN_search/{study_name}_pruner.pickle', 'rb') as f:
@@ -398,7 +396,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///425_convnext_uus_1.db',
+                            storage=f'sqlite:///511_convnext_avgmax_3.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
