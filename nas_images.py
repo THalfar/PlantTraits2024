@@ -33,7 +33,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '511_convnextbase_3'
+study_name = '511_convnextlarge_3'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -48,10 +48,10 @@ print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
 
-X_train_avg = np.stack(train_df['511_convnextbase_avgmax'].values)
+X_train_avg = np.stack(train_df['511_convnextlarge_avg'].values)
 y_train = train_df[mean_columns]
 
-X_valid_avg = np.stack(valid_df['511_convnextbase_avgmax'].values)
+X_valid_avg = np.stack(valid_df['511_convnextlarge_avg'].values)
 y_valid = valid_df[mean_columns]
 
 
@@ -383,7 +383,7 @@ num_gene = 50
 num_tpe_trial = 5
 
 
-search_time_max = 3600 * 1
+search_time_max = 3600 * 18
 
 if os.path.exists(f'./NN_search/{study_name}_pruner.pickle'):
     with open(f'./NN_search/{study_name}_pruner.pickle', 'rb') as f:
@@ -396,7 +396,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///511_convnext_avgmax_3.db',
+                            storage=f'sqlite:///511_convnextlarge_avg_3.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
