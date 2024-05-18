@@ -36,7 +36,7 @@ features = pd.read_csv('./data/test.csv')
 FEATURE_COLS = features.columns[1:].tolist()
     
 
-study_name = '518_convnextlarge_maxavg_2'
+study_name = '518_convnextlarge_maxavg_Jkl_kunpaeikamalaolo_2'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -447,7 +447,7 @@ def objective(trial):
 
 num_random_trials = 1
 num_gene = 50
-num_tpe_trial = 5
+num_tpe_trial = 15
 
 
 search_time_max = 3600 * 420
@@ -487,7 +487,7 @@ if os.path.exists(f'./NN_search/{study_name}_genesampler.pickle'):
         genemachine = pickle.load(f)
 else:
     print('Creating new gene sampler')
-    genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover(), mutation_prob = 0.03)
+    genemachine = optuna.samplers.NSGAIISampler(crossover = optuna.samplers.nsgaii.VSBXCrossover(eta=1.0), mutation_prob = 0.03)
 
 if os.path.exists(f'./NN_search/{study_name}_qmc_sampler.pickle'):
     with open(f'./NN_search/{study_name}_qmc_sampler.pickle', 'rb') as f:
