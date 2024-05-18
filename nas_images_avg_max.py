@@ -1,7 +1,7 @@
 import pandas as pd 
-import matplotlib.pyplot as plt
+
 import os 
-import seaborn as sns
+
 from sklearn.model_selection import train_test_split
 import pickle
 import tensorflow as tf
@@ -36,7 +36,7 @@ features = pd.read_csv('./data/test.csv')
 FEATURE_COLS = features.columns[1:].tolist()
     
 
-study_name = '514_convnextlarge_maxavg_2'
+study_name = '518_convnextlarge_maxavg_2'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -87,7 +87,7 @@ def r2_score_safe(y_true, y_pred):
     try:
         return r2_score(y_true, y_pred)
     except Exception as e: 
-        # print(f'Error in r2_score_safe: {e}')        
+        print(f'Error in r2_score_safe: {e}')        
         return float('-inf')
 
 def mean_squared_error_safe(y_true, y_pred):
@@ -95,7 +95,7 @@ def mean_squared_error_safe(y_true, y_pred):
     try:
         return mean_squared_error(y_true, y_pred)
     except Exception as e:
-        # print(f'Error in mean_squared_error_safe: {e}')
+        print(f'Error in mean_squared_error_safe: {e}')
         return float('-inf')
 
 def mean_absolute_error_safe(y_true, y_pred):
@@ -103,7 +103,7 @@ def mean_absolute_error_safe(y_true, y_pred):
     try:
         return mean_absolute_error(y_true, y_pred)
     except Exception as e:
-        # print(f'Erros in mean_absolute_error_safe: {e}')
+        print(f'Erros in mean_absolute_error_safe: {e}')
         return float('-inf')
 
 def r2_score_tf(y_true, y_pred):
@@ -125,7 +125,7 @@ def create_model(trial):
     image_max = Input(shape=(X_train_max.shape[1],), name='image_max_input')
 
     img_avg_layers = trial.suggest_int('Avg layers', 1, 3)
-    img_avg_neurons = 4200
+    img_avg_neurons = 6000
     img_avg_in = image_avg
 
     image_avg_init = trial.suggest_categorical(f'Img_avg_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
@@ -135,10 +135,19 @@ def create_model(trial):
 
     for i in range(img_avg_layers):
 
-        num_img_avg_units = trial.suggest_int(f'Num_avg_img_{i}', 32, img_avg_neurons, log = True)
-        img_avg_in = Dense(num_img_avg_units, activation=activation_avg_img, kernel_initializer = image_avg_init)(img_avg_in)
-        img_avg_in = Dropout(drop_avg_img)(img_avg_in)
+        num_img_avg_units = trial.suggest_int(f'Num_avg_img_{i}', 32, img_avg_neurons, log=True)
+        img_avg_in = Dense(num_img_avg_units, kernel_initializer=image_avg_init)(img_avg_in)
 
+        if activation_avg_img == 'LeakyReLU':
+            alpha_avg = trial.suggest_float(f'alpha_avg_img_{i}', 0.01, 0.3)
+            img_avg_in = layers.LeakyReLU(alpha=alpha_avg)(img_avg_in)
+        elif activation_avg_img == 'elu':
+            alpha_avg = trial.suggest_float(f'alpha_avg_img_{i}', 0.1, 1.0)
+            img_avg_in = layers.ELU(alpha=alpha_avg)(img_avg_in)
+        else:
+            img_avg_in = layers.Activation(activation_avg_img)(img_avg_in)
+
+        img_avg_in = Dropout(drop_avg_img)(img_avg_in)
         img_avg_neurons = min(img_avg_neurons, num_img_avg_units)
 
     if batch_avg_norm_img == 'On':
@@ -146,7 +155,7 @@ def create_model(trial):
 
 
     img_max_layers = trial.suggest_int('Max layers', 1, 3)
-    img_max_neurons = 4200
+    img_max_neurons = 6000
     img_max_in = image_max
 
     img_avg_init = trial.suggest_categorical(f'Img_max_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
@@ -156,10 +165,19 @@ def create_model(trial):
 
     for i in range(img_max_layers):
 
-        num_img_max_units = trial.suggest_int(f'Num_tab_{i}', 32, img_max_neurons, log = True)
-        img_max_in = Dense(num_img_max_units, activation=activation_max_img, kernel_initializer = img_avg_init)(img_max_in)
-        img_max_in = Dropout(drop_max_img)(img_max_in)
+        num_img_max_units = trial.suggest_int(f'Num_max_img_{i}', 32, img_max_neurons, log=True)
+        img_max_in = Dense(num_img_max_units, kernel_initializer=img_avg_init)(img_max_in)
 
+        if activation_max_img == 'LeakyReLU':
+            alpha_max = trial.suggest_float(f'alpha_max_img_{i}', 0.01, 0.3)
+            img_max_in = layers.LeakyReLU(alpha=alpha_max)(img_max_in)
+        elif activation_max_img == 'elu':
+            alpha_max = trial.suggest_float(f'alpha_max_img_{i}', 0.1, 1.0)
+            img_max_in = layers.ELU(alpha=alpha_max)(img_max_in)
+        else:
+            img_max_in = layers.Activation(activation_max_img)(img_max_in)
+
+        img_max_in = Dropout(drop_max_img)(img_max_in)
         img_max_neurons = min(img_max_neurons, num_img_max_units)
 
     if batch_max_norm_img == 'On':
@@ -167,7 +185,7 @@ def create_model(trial):
 
     concatenated = Concatenate()([img_max_in, img_avg_in])
     com_num_layers = trial.suggest_int('Concat layers', 1, 3)
-    max_com_units = 4200
+    max_com_units = 6000
     
     con_init = trial.suggest_categorical(f'Con_init', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform', 'random_normal', 'random_uniform'])
     activation_common = trial.suggest_categorical(f'Act_con',  choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
@@ -176,10 +194,19 @@ def create_model(trial):
 
     for i in range(com_num_layers):
 
-        num_common_units = trial.suggest_int(f'Num_con_{i}', 32, max_com_units, log = True)
-        concatenated = Dense(num_common_units, activation=activation_common, kernel_initializer = con_init)(concatenated)
-        concatenated = Dropout(drop_common)(concatenated)
+        num_common_units = trial.suggest_int(f'Num_con_{i}', 32, max_com_units, log=True)
+        concatenated = Dense(num_common_units, kernel_initializer=con_init)(concatenated)
 
+        if activation_common == 'LeakyReLU':
+            alpha_common = trial.suggest_float(f'alpha_common_{i}', 0.01, 0.3)
+            concatenated = layers.LeakyReLU(alpha=alpha_common)(concatenated)
+        elif activation_common == 'elu':
+            alpha_common = trial.suggest_float(f'alpha_common_{i}', 0.1, 1.0)
+            concatenated = layers.ELU(alpha=alpha_common)(concatenated)
+        else:
+            concatenated = layers.Activation(activation_common)(concatenated)
+
+        concatenated = Dropout(drop_common)(concatenated)
         max_com_units = min(max_com_units, num_common_units)
 
     if batch_norm_common == 'On':
@@ -191,14 +218,17 @@ def create_model(trial):
     optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
 
+    learning_rate = trial.suggest_float('learning_rate', 1e-5, 1e-1, log=True)
     if optimizer_selected == 'adam':
-        optimizer = optimizers.Adam()
+        optimizer = optimizers.Adam(learning_rate=learning_rate)
     elif optimizer_selected == 'rmsprop':
-        optimizer = optimizers.RMSprop()        
+        optimizer = optimizers.RMSprop(learning_rate=learning_rate)
     elif optimizer_selected == 'Ftrl':
-        optimizer = optimizers.Ftrl()
+        optimizer = optimizers.Ftrl(learning_rate=learning_rate)
     else:
-        optimizer = optimizers.Adamax()
+        optimizer = optimizers.Adamax(learning_rate=learning_rate)
+
+
 
     
         
@@ -245,8 +275,8 @@ def objective(trial):
 
     for epoch in range(17):
 
-        model.fit([X_train_avg, X_train_max], y_train_transformed, validation_data=([X_train_avg, X_train_max], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
-        preds_transformed = model.predict([X_train_avg, X_train_max], verbose = 0)        
+        model.fit([X_train_avg, X_train_max], y_train_transformed, validation_data=([X_valid_avg, X_valid_max], y_valid_transformed), batch_size=256, epochs=3, callbacks=callbacks, verbose = 0)
+        preds_transformed = model.predict([X_valid_avg, X_valid_max], verbose = 0)        
 
         try:        
             preds_transformed = std_scaler.inverse_transform(preds_transformed)           
@@ -259,18 +289,18 @@ def objective(trial):
             r2_score_inv = r2_score_safe(y_valid, preds_transformed)                        
 
         except Exception as e:
-            # print(f'Error in inverse transformation: {e}')
-            # print(f'Trial number {trial.number} epoch {epoch}')
+            print(f'Error in inverse transformation: {e}')
+            print(f'Trial number {trial.number} epoch {epoch}')
             r2_score_inv = float('-inf')
             
         if np.isnan(preds_transformed).any():
-            # print(f'Nan values in predictions')
-            # print(f'Trial number {trial.number} epoch {epoch}')
+            print(f'Nan values in predictions')
+            print(f'Trial number {trial.number} epoch {epoch}')
             r2_score_inv = float('-inf')                        
 
         if np.isinf(preds_transformed).any():
-            # print(f'Inf values in predictions')
-            # print(f'Trial number {trial.number} epoch {epoch}')
+            print(f'Inf values in predictions')
+            print(f'Trial number {trial.number} epoch {epoch}')
             r2_score_inv = float('-inf')
 
         trial.report(r2_score_inv, epoch)
@@ -420,7 +450,7 @@ num_gene = 50
 num_tpe_trial = 5
 
 
-search_time_max = 3600 * 18
+search_time_max = 3600 * 420
 
 if os.path.exists(f'./NN_search/{study_name}_pruner.pickle'):
     with open(f'./NN_search/{study_name}_pruner.pickle', 'rb') as f:
