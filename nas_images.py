@@ -33,7 +33,7 @@ with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '511_convnextlarge_3'
+study_name = '523_ConvNeXtXLarge_4'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -42,16 +42,16 @@ print(train_df['fold'].value_counts())
 
 
 sample_df = train_df.copy()
-train_df = sample_df[sample_df.fold != 3]
-valid_df = sample_df[sample_df.fold == 3]
+train_df = sample_df[sample_df.fold != 4]
+valid_df = sample_df[sample_df.fold == 4]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
 
-X_train_avg = np.stack(train_df['511_convnextlarge_avg'].values)
+X_train_avg = np.stack(train_df['523_ConvNeXtXLarge_4'].values)
 y_train = train_df[mean_columns]
 
-X_valid_avg = np.stack(valid_df['511_convnextlarge_avg'].values)
+X_valid_avg = np.stack(valid_df['523_ConvNeXtXLarge_4'].values)
 y_valid = valid_df[mean_columns]
 
 
@@ -123,8 +123,8 @@ def create_model(trial):
     img_dense_input = Dropout(start_drop)(image_avg_output)
     img_dense_avg = img_dense_input
 
-    max_img_avg_units = 4200
-    num_img_avg = trial.suggest_int('ImAvg_layers', 1, 4)
+    max_img_avg_units = 6000
+    num_img_avg = trial.suggest_int('ImAvg_layers', 1, 3)
     
     for i in range(num_img_avg):
 
@@ -142,6 +142,19 @@ def create_model(trial):
         img_dense_avg = Dropout(img_drop)(img_dense_avg)      
 
         max_img_avg_units = min(max_img_avg_units, num_img_avg_units)
+
+    num_img_avg_units_last = trial.suggest_int(f'ImAvg_last', 32, 600)
+    img_activation_last = trial.suggest_categorical(f'ImAvg_act_last', choices = ['relu', 'tanh', 'selu', 'LeakyReLU', 'swish', 'elu', 'sigmoid'])
+    img_initializer_last = trial.suggest_categorical(f'ImAvg_init_last', choices = ['glorot_uniform', 'he_normal', 'he_uniform', 'lecun_normal', 'lecun_uniform',  'random_normal', 'random_uniform'])
+    img_norm_last = trial.suggest_categorical(f'ImAvg_Norm_last', choices = ['On', 'Off'])
+    img_drop_last = trial.suggest_float(f'ImAvg_Drop_{i}', 0.0, 0.9)
+
+    if img_norm_last == 'On':            
+            img_dense_avg = layers.BatchNormalization()(img_dense_avg)
+
+    img_dense_avg = Dropout(img_drop_last)(img_dense_avg)    
+
+    img_dense_avg = Dense(num_img_avg_units_last, activation=img_activation_last, kernel_initializer = img_initializer_last)(img_dense_avg)
 
 
     output = Dense(6, activation='linear')(img_dense_avg)
@@ -380,7 +393,7 @@ def objective(trial):
 
 num_random_trials = 1
 num_gene = 50
-num_tpe_trial = 5
+num_tpe_trial = 15
 
 
 search_time_max = 3600 * 18
@@ -396,7 +409,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///511_convnextlarge_avg_3.db',
+                            storage=f'sqlite:///523_ConvNeXtXLarge_4.db',
                             load_if_exists=True,
                             pruner=pruner
                             )
