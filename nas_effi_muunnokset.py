@@ -22,31 +22,22 @@ from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error
 from sklearn.preprocessing import StandardScaler, RobustScaler
 import logging
 
-pickle_file_path = './data/test_df.pickle'
+pickle_file_path = './data/test_df_kolmas.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     test_df = pickle.load(f)
 
-pickle_file_path = './data/train_df.pickle'
+pickle_file_path = './data/train_df_kolmas.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
 
-features = pd.read_csv('./data/test.csv')
-FEATURE_COLS = features.columns[1:].tolist()
-
 print(train_df.columns)
     
 
-study_name = '421_effi_testi_3'
+study_name = '527_convnextlarge_0'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
-
-
-# selected_features_pickle_path = './data/selected_features_list.pickle'
-# with open(selected_features_pickle_path, 'rb') as f:
-#     FEATURE_COLS = pickle.load(f)
-
 
 train_df_original = train_df.copy()
 
@@ -54,15 +45,15 @@ print(train_df['fold'].value_counts())
 
 
 sample_df = train_df.copy()
-train_df = sample_df[sample_df.fold != 3]
-valid_df = sample_df[sample_df.fold == 3]
+train_df = sample_df[sample_df.fold != 0]
+valid_df = sample_df[sample_df.fold == 0]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
-X_train_feat = np.stack(train_df['features_avg'].values)
+X_train_feat = np.stack(train_df['527_Convnextlarge'].values)
 y_train = train_df[mean_columns]
 
-X_valid_feat = np.stack(valid_df['features_avg'].values)
+X_valid_feat = np.stack(valid_df['527_Convnextlarge'].values)
 y_valid = valid_df[mean_columns]
 
 
@@ -79,10 +70,6 @@ if gpus:
         print(e)
 
 
-
-from tensorflow.keras import mixed_precision
-mixed_precision.set_global_policy('mixed_float16')
-    
 
 np.seterr(over='ignore')
 
@@ -184,11 +171,11 @@ def objective(trial):
 
         if method == 'log':
             # Ehdota logaritmin kantaa välillä 2-50
-            base = trial.suggest_int(f'log_base_{target}', 2, 50)
+            base = trial.suggest_int(f'log_base_{target}', 2, 15)
             transformations[target] = (method, base)
         elif method == 'power':
             # Ehdota eksponenttia välillä 0.1-0.5
-            exponent = trial.suggest_float(f'power_exp_{target}', 0.1, 0.5)
+            exponent = trial.suggest_float(f'power_exp_{target}', 0.1, 0.9)
             transformations[target] = (method, exponent)
         else:
             transformations[target] = (method, None)
@@ -206,7 +193,7 @@ def objective(trial):
 
     
     
-    scaler_base_options = {'Std': StandardScaler(), 'None': None, 'minmax': MinMaxScaler()}
+    scaler_base_options = {'Std': StandardScaler(), 'None': None}
     scaler_transforms = {}
     for target in mean_columns:
         scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
@@ -419,7 +406,7 @@ else:
 
 study = optuna.create_study(direction='maximize',
                             study_name=study_name,
-                            storage=f'sqlite:///421_effimuunnokset.db',
+                            storage=f'sqlite:///527_nohead.db',
                             load_if_exists=True,
                             pruner=pruner
                             )

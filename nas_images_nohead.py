@@ -22,18 +22,18 @@ import os
 from sklearn.preprocessing import StandardScaler, MinMaxScaler, PowerTransformer, QuantileTransformer, RobustScaler
 from sklearn.metrics import r2_score, mean_squared_error, mean_absolute_error, mean_absolute_percentage_error
 
-pickle_file_path = './data/test_df.pickle'
+pickle_file_path = './data/test_df_kolmas.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     test_df = pickle.load(f)
 
-pickle_file_path = './data/train_df.pickle'
+pickle_file_path = './data/train_df_kolmas.pickle'
 
 with open(pickle_file_path, 'rb') as f:
     train_df = pickle.load(f)
     
 
-study_name = '523_ConvNeXtXLarge_new'
+study_name = '527_convnextlarge_0'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -42,16 +42,16 @@ print(train_df['fold'].value_counts())
 
 
 sample_df = train_df.copy()
-train_df = sample_df[sample_df.fold != 4]
-valid_df = sample_df[sample_df.fold == 4]
+train_df = sample_df[sample_df.fold != 0]
+valid_df = sample_df[sample_df.fold == 0]
 print(f"# Num Train: {len(train_df)} | Num Valid: {len(valid_df)}")
 
 
 
-X_train_avg = np.stack(train_df['523_ConvNeXtXLarge_4'].values)
+X_train_avg = np.stack(train_df['527_Convnextlarge'].values)
 y_train = train_df[mean_columns]
 
-X_valid_avg = np.stack(valid_df['523_ConvNeXtXLarge_4'].values)
+X_valid_avg = np.stack(valid_df['527_Convnextlarge'].values)
 y_valid = valid_df[mean_columns]
 
 
@@ -175,11 +175,41 @@ def objective(trial):
     y_valid_transformed = y_valid.copy()
 
 
-    log_transforms = {}
+    transformation_options = {
+        'none': lambda x: x,
+        'log': lambda x, base: np.log(x) / np.log(base),
+        'power': lambda x, exp: np.power(x, exp)
+    }
+
+    # Luodaan sanakirja muunnoksille
+    transformations = {}
+
     for target in mean_columns:
-        # Directly suggest an integer between 2 and 13 for the log base
-        log_base = trial.suggest_int(f'Log_{target}', 2, 15)
-        log_transforms[target] = log_base
+        # Valitse, käytetäänkö logaritmia, potenssia tai ei kumpaakaan
+        method = trial.suggest_categorical(f'method_{target}', ['none', 'log', 'power'])
+
+        if method == 'log':
+            # Ehdota logaritmin kantaa välillä 2-50
+            base = trial.suggest_int(f'log_base_{target}', 2, 15)
+            transformations[target] = (method, base)
+        elif method == 'power':
+            # Ehdota eksponenttia välillä 0.1-0.5
+            exponent = trial.suggest_float(f'power_exp_{target}', 0.2, 0.5)
+            transformations[target] = (method, exponent)
+        else:
+            transformations[target] = (method, None)
+
+   
+    scaler_base_options = {'Std': StandardScaler(), 'None': None}
+    scaler_transforms = {}
+    for target in mean_columns:
+        scaler_base = trial.suggest_categorical(f'Scaler_{target}', list(scaler_base_options.keys()))
+        scaler_transforms[target] = scaler_base_options[scaler_base]
+    
+    for target, scaler in scaler_transforms.items():
+        if scaler is not None:
+            y_train_transformed[target] = scaler.fit_transform(y_train_transformed[target].values.reshape(-1, 1)).flatten()
+            y_valid_transformed[target] = scaler.transform(y_valid_transformed[target].values.reshape(-1, 1)).flatten()
 
     
     # ReduceLROnPlateau('val_mae', patience=2, factor=0.7, mode = 'min', verbose = 0)
@@ -187,10 +217,6 @@ def objective(trial):
     
     callbacks = [ReduceLROnPlateau('val_mae', patience=2, factor=0.7, mode = 'min', verbose = 0)]
 
-    for target, log_base in log_transforms.items():
-    
-        y_train_transformed[target] = np.log(y_train[target]) / np.log(log_base)
-        y_valid_transformed[target] = np.log(y_valid[target]) / np.log(log_base)
     
     std_scaler = StandardScaler()
 
