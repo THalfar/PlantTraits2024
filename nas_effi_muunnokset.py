@@ -35,7 +35,7 @@ with open(pickle_file_path, 'rb') as f:
 print(train_df.columns)
     
 
-study_name = '527_convnextlarge_0'
+study_name = '527_convnextl_0'
 
 mean_columns = ['X4_mean', 'X11_mean', 'X18_mean', 'X50_mean', 'X26_mean', 'X3112_mean']
 
@@ -119,7 +119,7 @@ def create_model(trial):
         image_features_input = tf.keras.layers.BatchNormalization()(image_features_input)
     
     drop_on = trial.suggest_categorical('drop_on', [True, False])
-    drop_rate = trial.suggest_float('drop_rate', 0.1, 0.9)
+    drop_rate = trial.suggest_float('drop_rate', 0.1, 0.9, step = 0.1)
 
     if drop_on:
         image_features_input = Dropout(drop_rate)(image_features_input)
@@ -128,15 +128,13 @@ def create_model(trial):
     output = Dense(6, activation='linear')(image_features_input)
     model = Model(inputs=image_features_input, outputs=output)
 
-    optimizer_options = ['adam', 'rmsprop', 'adamax', 'Ftrl']
+    optimizer_options = ['adam', 'rmsprop', 'adamax']
     optimizer_selected = trial.suggest_categorical('optimizer', optimizer_options)
 
     if optimizer_selected == 'adam':
         optimizer = optimizers.Adam()
     elif optimizer_selected == 'rmsprop':
         optimizer = optimizers.RMSprop()        
-    elif optimizer_selected == 'Ftrl':
-        optimizer = optimizers.Ftrl()
     else:
         optimizer = optimizers.Adamax()
 
@@ -167,7 +165,7 @@ def objective(trial):
 
     for target in mean_columns:
         # Valitse, käytetäänkö logaritmia, potenssia tai ei kumpaakaan
-        method = trial.suggest_categorical(f'method_{target}', ['none', 'log', 'power'])
+        method = trial.suggest_categorical(f'method_{target}', ['none','log', 'power'])
 
         if method == 'log':
             # Ehdota logaritmin kantaa välillä 2-50
@@ -175,7 +173,7 @@ def objective(trial):
             transformations[target] = (method, base)
         elif method == 'power':
             # Ehdota eksponenttia välillä 0.1-0.5
-            exponent = trial.suggest_float(f'power_exp_{target}', 0.1, 0.9)
+            exponent = trial.suggest_float(f'power_exp_{target}', 0.1, 0.9, step = 0.1)
             transformations[target] = (method, exponent)
         else:
             transformations[target] = (method, None)
@@ -390,7 +388,7 @@ def objective(trial):
 
 num_random_trials = 1
 num_gene = 50
-num_tpe_trial = 5
+num_tpe_trial = 10
 
 
 search_time_max = 3600 * 18
